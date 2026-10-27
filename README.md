@@ -97,15 +97,16 @@ OAuth state는 10분 유효한 암호화 HttpOnly 쿠키이며, 콜백 처리 �
 
 ### 데이터 처리와 오류
 
-- 서버가 프로필 계정을 확인한 후 게시물을 커서 방식으로 읽습니다. 페이지당 25개를 요청하며 최대 40페이지까지 읽습니다. 제한 초과·순환 커서는 잘린 목록 대신 오류를 반환합니다.
-- 캐러셀은 별도 children 경로를 최대 4페이지까지 읽습니다. 요청 동시성은 최대 4개입니다.
+- 서버가 프로필 계정을 확인한 후 최근 게시물 25개를 먼저 반환합니다. 나머지는 브라우저에서 커서 방식으로 순차 로드하며 최대 40페이지까지 읽습니다. 실패 시 이미 표시한 사진을 유지하고 재시도를 제공합니다.
+- 캐러셀은 목록의 `children.limit(100)` 필드 확장으로 함께 조회합니다. 자식 목록이 빠졌거나 다음 페이지가 있으면 별도 children 경로를 최대 4페이지까지 읽습니다. 보완 요청 동시성은 최대 4개입니다.
 - 게시물 ID 중복을 제거하고 최신순으로 정렬합니다. 이미지·영상·캐러셀, 원문 캡션·날짜·원문 링크를 기존 UI 모델로 변환합니다.
 - 미디어 URL이 없는 항목과 지원하지 않는 형식은 제외합니다. 썸네일이 없는 영상은 `영상 보기`를 표시하며 상세 화면에서 재생합니다.
 - API가 제공하지 않는 이미지 치수는 1080×1080 자리표시 값이며, 화면은 `object-fit: contain`으로 실제 비율을 보존합니다.
 - Instagram/Facebook CDN의 HTTPS 이미지 주소만 허용하고, API의 next URL은 직접 따라가지 않고 커서로 재구성합니다.
-- `GET /api/instagram/posts`는 현재 데이터 소스의 정규화된 갤러리 데이터를 반환합니다. 토큰·원시 API 오류·페이징 URL을 반환하지 않습니다.
+- `GET /api/instagram/posts?after=커서`는 `{ posts, nextCursor }` 형태의 한 페이지를 반환합니다. 첫 요청에서는 after를 생략합니다. 토큰·원시 API 오류·Meta 페이징 URL을 반환하지 않습니다.
 - 오류 코드는 `configuration`(503), `authentication`(401), `rate_limit`(429), `upstream`/`pagination`(502)입니다. 갤러리는 오류 화면과 재시도를 제공합니다. 실제 모드가 실패해도 Mock으로 자동 전환하지 않습니다.
-- 요청마다 다시 조회하며 캐싱·자동 재시도는 아직 없습니다. 연결 설정과 토큰을 수정한 뒤 서버 재시작/화면 재시도로 확인합니다.
+- 페이지별 서버 메모리 캐시는 5분간 유지되며 최대 80개입니다. 같은 페이지의 동시 요청은 공유하고 실패는 저장하지 않습니다. 토큰·계정·API 버전 변경 시 다른 캐시 키를 사용합니다. 브라우저 응답은 `no-store`이고 프로세스 재시작 시 서버 캐시도 초기화됩니다. 새 게시물은 최대 5분 후 새로고침에 반영됩니다.
+- 첫 페이지의 카메라 위치를 유지한 채 뒤쪽에 사진을 추가합니다. Home도 처음 보였던 위치로 돌아갑니다.
 
 ### 검증과 남은 단계
 
@@ -114,7 +115,7 @@ OAuth state는 10분 유효한 암호화 HttpOnly 쿠키이며, 콜백 처리 �
 Route Handler 테스트는 소유자 키·Origin 검사, OAuth state 발급·변조 거부, 안전한 게시물 응답을 확인합니다.
 실제 Meta 계정의 승인·토큰 교환·사진 CDN·영상 재생은 자격 증명 설정 후 반드시 확인해야 합니다.
 
-Phase 3: 캐싱, 새 게시물 동기화, 토큰 자동 갱신·운영 영속 저장소, 실데이터 대량 성능 검증, Vercel 배포.
+Phase 3 잔여 범위: 운영용 공유 캐시, 새 게시물 자동 동기화, 토큰 자동 갱신·운영 영속 저장소, 실데이터 대량 성능 검증, Vercel 배포.
 
 공식 참고: [Instagram Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/), [Business Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login), [Meta Instagram API 컬렉션](https://www.postman.com/meta/instagram/overview).
 구현 시 Meta 문서 직접 조회가 429로 제한되어 실제 앱에서 OAuth 교환과 API 버전 호환 확인이 남아 있습니다.

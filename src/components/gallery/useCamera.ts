@@ -4,6 +4,7 @@ import { gsap } from 'gsap';
 import { Camera, Size, clampCamera, zoomAt } from '@/lib/gallery/geometry';
 
 export function useCamera(world: Size, paused: boolean) {
+  const initialWorld = useRef({ width: world.width, height: world.height });
   const viewportRef = useRef<HTMLDivElement>(null);
   const planeRef = useRef<HTMLDivElement>(null);
   const camera = useRef<Camera>({ x: 0, y: 0, scale: 0.8 });
@@ -26,11 +27,11 @@ export function useCamera(world: Size, paused: boolean) {
     let velocity = { x: 0, y: 0 }, lastTime = 0, lastMove = 0, distance = 0, travel = 0;
     const center = () => {
       const scale = size.current.width < 600 ? 0.64 : 0.8;
-      return clampCamera({ x: (size.current.width - world.width * scale) / 2, y: (size.current.height - world.height * scale) / 2, scale }, size.current, world);
+      return clampCamera({ x: (size.current.width - initialWorld.current.width * scale) / 2, y: (size.current.height - initialWorld.current.height * scale) / 2, scale });
     };
     const resize = new ResizeObserver(() => {
       size.current = { width: el.clientWidth, height: el.clientHeight };
-      target.current = !initialized.current ? center() : clampCamera(target.current, size.current, world);
+      target.current = !initialized.current ? center() : clampCamera(target.current);
       if (!initialized.current) { camera.current = { ...target.current }; initialized.current = true; }
     });
     resize.observe(el);
@@ -42,7 +43,7 @@ export function useCamera(world: Size, paused: boolean) {
         target.current.x += velocity.x * dt; target.current.y += velocity.y * dt;
         velocity.x *= Math.pow(0.9, dt); velocity.y *= Math.pow(0.9, dt);
       }
-      target.current = clampCamera(target.current, size.current, world);
+      target.current = clampCamera(target.current);
       const k = reduced.current || paused ? 1 : 1 - Math.pow(0.78, dt);
       const c = camera.current, t = target.current;
       c.x += (t.x - c.x) * k; c.y += (t.y - c.y) * k; c.scale += (t.scale - c.scale) * k;
@@ -95,8 +96,14 @@ export function useCamera(world: Size, paused: boolean) {
     const wheel = (e: WheelEvent) => {
       e.preventDefault(); if (paused) return;
       velocity = { x: 0, y: 0 }; const p = local(e);
-      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? size.current.height : 1);
-      target.current = zoomAt(target.current, target.current.scale * Math.exp(-Math.max(-150, Math.min(150, delta)) * 0.002), p.x, p.y);
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? size.current.height : 1;
+      const dx = e.deltaX * unit, dy = e.deltaY * unit;
+      if (e.ctrlKey || e.metaKey) {
+        target.current = zoomAt(target.current, target.current.scale * Math.exp(-Math.max(-150, Math.min(150, dy)) * 0.002), p.x, p.y);
+      } else {
+        target.current.x -= e.shiftKey && dx === 0 ? dy : dx;
+        target.current.y -= e.shiftKey && dx === 0 ? 0 : dy;
+      }
     };
     const key = (e: KeyboardEvent) => {
       if (paused || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -118,6 +125,6 @@ export function useCamera(world: Size, paused: boolean) {
       window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
       el.removeEventListener('wheel', wheel); el.removeEventListener('keydown', key);
     };
-  }, [world.width, world.height, paused]);
+  }, [paused]);
   return { viewportRef, planeRef, camera, view, dragged, controls };
 }

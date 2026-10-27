@@ -1,5 +1,5 @@
 // Server callers only: do not return raw API responses or errors to the browser.
-import type { GalleryMedia, GalleryPost } from '../../types/gallery';
+import type { GalleryMedia, GalleryPage, GalleryPost } from '../../types/gallery';
 
 export class InstagramError extends Error {
   constructor(public readonly code: 'configuration' | 'authentication' | 'rate_limit' | 'upstream' | 'pagination', public readonly status = 502) {
@@ -7,9 +7,10 @@ export class InstagramError extends Error {
   }
 }
 
-type Media = { id: string; media_type: string; media_url?: string; thumbnail_url?: string; caption?: string; timestamp?: string; permalink?: string };
+type Media = { id: string; media_type: string; media_url?: string; thumbnail_url?: string; caption?: string; timestamp?: string; permalink?: string; children?: Page<Media> };
 type Page<T> = { data: T[]; paging?: { next?: string; cursors?: { after?: string } } };
 type Fetcher = typeof fetch;
+const mediaFields = 'id,media_type,media_url,thumbnail_url,caption,timestamp,permalink,children.limit(100){id,media_type,media_url,thumbnail_url}';
 
 export async function requestJson<T>(url: URL, init: RequestInit = {}, fetcher: Fetcher = fetch): Promise<T> {
   try {
@@ -90,14 +91,29 @@ export class InstagramClient {
   }
   async posts(expectedUsername: string): Promise<GalleryPost[]> {
     const profile = await this.profile(expectedUsername);
-    const raw = await this.collection<Media>(`${profile.user_id}/media`, 'id,media_type,media_url,thumbnail_url,caption,timestamp,permalink');
+    const raw = await this.collection<Media>(`${profile.user_id}/media`, mediaFields);
+    return this.normalizeBatch(raw);
+  }
+  async postsPage(expectedUsername: string, after?: string): Promise<GalleryPage> {
+    if (after !== undefined && (!after || after.length > 4096)) throw new InstagramError('pagination', 400);
+    const profile = await this.profile(expectedUsername);
+    const result = await this.get<Page<Media>>(`${profile.user_id}/media`, {
+      fields: mediaFields, limit: '25', ...(after ? { after } : {}),
+    });
+    if (!Array.isArray(result.data)) throw new InstagramError('upstream');
+    const nextCursor = result.paging?.next ? result.paging.cursors?.after : null;
+    if (result.paging?.next && (typeof nextCursor !== 'string' || !nextCursor || nextCursor.length > 4096 || nextCursor === after)) throw new InstagramError('pagination');
+    return { posts: await this.normalizeBatch(result.data), nextCursor: nextCursor || null };
+  }
+  private async normalizeBatch(raw: Media[]): Promise<GalleryPost[]> {
     const result = new Map<string, GalleryPost>();
     // Bounded concurrency for carousel requests to avoid a burst of API calls.
     for (let offset = 0; offset < raw.length; offset += 4) {
       const batch = await Promise.all(raw.slice(offset, offset + 4).map(async post => {
         if (!/^\d+$/.test(post.id)) throw new InstagramError('upstream');
-        const children = post.media_type === 'CAROUSEL_ALBUM'
-          ? await this.collection<Media>(`${post.id}/children`, 'id,media_type,media_url,thumbnail_url', 4) : [];
+        const children = post.media_type !== 'CAROUSEL_ALBUM' ? []
+          : Array.isArray(post.children?.data) && !post.children.paging?.next ? post.children.data
+          : await this.collection<Media>(`${post.id}/children`, 'id,media_type,media_url,thumbnail_url', 4);
         return normalizePost(post, children);
       }));
       for (const post of batch) if (post) result.set(post.id, post);

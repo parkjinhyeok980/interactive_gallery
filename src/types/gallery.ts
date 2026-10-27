@@ -17,3 +17,4 @@ export type GalleryPost = {
   isMock: boolean;
 };
 export type GalleryRepository = { getPosts: () => Promise<GalleryPost[]> };
+export type GalleryPage = { posts: GalleryPost[]; nextCursor: string | null };

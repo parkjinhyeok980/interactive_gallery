@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { InstagramClient, normalizePost, requestJson } from '../src/lib/instagram/api';
+import { PageCache } from '../src/lib/data/pageCache';
+import { createLayout } from '../src/lib/gallery/geometry';
 
 const image = { id: '1', media_type: 'IMAGE', media_url: 'https://scontent.cdninstagram.com/photo.jpg', timestamp: '2026-10-01T12:00:00+0000', permalink: 'https://www.instagram.com/p/example/' };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -60,8 +62,61 @@ test('public posts API returns only gallery data and disables caching', async ({
   expect(response.ok()).toBe(true);
   expect(response.headers()['cache-control']).toBe('no-store');
   const body = await response.json();
-  expect(body.posts).toHaveLength(48);
+  expect(body.posts).toHaveLength(25);
+  expect(body.nextCursor).toBe('25');
+  const next = await request.get('/api/instagram/posts?after=25');
+  expect((await next.json()).posts).toHaveLength(23);
   expect(JSON.stringify(body)).not.toMatch(/access_token|app_secret|session_key/i);
+});
+
+test('first page uses expanded carousel media and does not wait for later pages', async () => {
+  let calls = 0;
+  const client = new InstagramClient('token', 'v25.0', async input => {
+    calls++;
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/me')) return json({ user_id: '99', username: 'hyeoki_foodie' });
+    expect(url.searchParams.get('fields')).toContain('children.limit(100)');
+    expect(url.searchParams.has('after')).toBe(false);
+    return json({ data: [{ ...image, media_type: 'CAROUSEL_ALBUM', children: { data: [image, { ...image, id: '2' }] } }],
+      paging: { next: 'https://graph.instagram.com/next?access_token=private', cursors: { after: 'next-page' } } });
+  });
+  const page = await client.postsPage('hyeoki_foodie');
+  expect(calls).toBe(2);
+  expect(page.posts[0].media).toHaveLength(2);
+  expect(page.nextCursor).toBe('next-page');
+  expect(JSON.stringify(page)).not.toContain('private');
+});
+
+test('page cache shares pending work, expires, isolates keys and retries failures', async () => {
+  let now = 0, calls = 0;
+  const cache = new PageCache<number>(100, 2, () => now);
+  const load = async () => ++calls;
+  expect(await Promise.all([cache.get('a', load), cache.get('a', load)])).toEqual([1, 1]);
+  expect(await cache.get('b', load)).toBe(2);
+  expect(await cache.get('a', load)).toBe(1);
+  now = 101;
+  expect(await cache.get('a', load)).toBe(3);
+  await expect(cache.get('bad', async () => { throw new Error('failed'); })).rejects.toThrow('failed');
+  expect(await cache.get('bad', load)).toBe(4);
+});
+
+test('first photos remain usable while older photos are delayed; retry preserves camera', async ({ page }) => {
+  let fail = true;
+  await page.route('**/api/instagram/posts?after=25', async route => {
+    if (fail) await route.fulfill({ status: 503, body: '{}' });
+    else await route.continue();
+  });
+  await page.goto('/');
+  await expect(page.locator('.photo-tile').first()).toBeAttached();
+  await expect.poll(() => page.locator('.gallery-plane').evaluate(el => parseFloat(getComputedStyle(el).height))).toBeCloseTo(createLayout(25).height, 1);
+  await expect(page.getByRole('status')).toContainText('이전 사진');
+  await expect.poll(() => page.locator('.photo-tile img').evaluateAll(images => images.some(img => (img as HTMLImageElement).naturalWidth > 0))).toBeTruthy();
+  const transform = await page.locator('.gallery-plane').evaluate(el => (el as HTMLElement).style.transform);
+  fail = false;
+  await page.getByRole('button', { name: '다시 시도' }).click();
+  await expect.poll(() => page.locator('.gallery-plane').evaluate(el => parseFloat(getComputedStyle(el).height))).toBeCloseTo(createLayout(48).height, 1);
+  await expect(page.getByRole('status')).toHaveCount(0);
+  expect(await page.locator('.gallery-plane').evaluate(el => (el as HTMLElement).style.transform)).toBe(transform);
 });
 
 test('OAuth rejects cross-origin requests and invalid admin keys', async ({ request }) => {

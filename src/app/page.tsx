@@ -1,4 +1,4 @@
-import { Gallery } from '@/components/gallery/Gallery';
-import { getGalleryPosts } from '@/lib/data/gallery';
+import { PagedGallery } from '@/components/gallery/PagedGallery';
+import { getGalleryPage } from '@/lib/data/gallery';
 export const dynamic = 'force-dynamic';
-export default async function Home() { return <Gallery posts={await getGalleryPosts()} />; }
+export default async function Home() { return <PagedGallery initialPage={await getGalleryPage()} />; }
