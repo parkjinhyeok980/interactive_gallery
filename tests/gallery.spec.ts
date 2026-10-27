@@ -2,8 +2,13 @@ import { expect, test, type Page } from '@playwright/test';
 import { createLayout, clampCamera, zoomAt } from '../src/lib/gallery/geometry';
 
 const transform = (page: Page) => page.locator('.gallery-plane').evaluate(el => (el as HTMLElement).style.transform);
+const scale = (page: Page) => page.locator('.gallery-plane').evaluate(el => Number((el as HTMLElement).style.transform.match(/scale\(([^)]+)\)/)?.[1]));
+async function resetCamera(page: Page) {
+  await page.getByRole('region', { name: '음식 사진 갤러리' }).focus();
+  await page.keyboard.press('Home');
+}
 async function visibleTile(page: Page, carousel = false) {
-  const tiles = page.locator(carousel ? '.photo-tile:has(.tile-stack)' : '.photo-tile');
+  const tiles = page.locator(carousel ? '.photo-tile[aria-label*="여러 사진"]' : '.photo-tile');
   for (let i = 0; i < await tiles.count(); i++) {
     const box = await tiles.nth(i).boundingBox();
     const screen = page.viewportSize()!;
@@ -32,9 +37,10 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.locator('.wordmark')).toHaveText('hyeoki');
+  await expect(page.locator('.gallery-ui')).toHaveText('hyeoki');
   await expect(page.locator('.photo-tile').first()).toBeAttached();
-  await expect(page.getByLabel('확대 배율')).toHaveText('80%');
+  await expect.poll(() => scale(page)).toBeCloseTo(0.8);
   expect(await page.locator('.photo-tile').count()).toBeLessThan(48);
   await expect.poll(() => page.locator('.photo-tile img').evaluateAll(images => images.some(img => (img as HTMLImageElement).naturalWidth > 0))).toBeTruthy();
   await page.screenshot({ path: 'qa-artifacts/desktop.png' });
@@ -45,15 +51,15 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   await page.mouse.up();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect.poll(() => transform(page)).not.toBe(before);
-  await page.getByRole('button', { name: '처음 위치로', exact: true }).click();
+  await resetCamera(page);
   await expect.poll(() => transform(page)).toBe(before);
-  await page.getByRole('button', { name: '확대', exact: true }).click();
-  await expect(page.getByLabel('확대 배율')).toHaveText('96%');
-  await page.getByRole('button', { name: '처음 위치로', exact: true }).click();
+  await page.keyboard.press('+');
+  await expect.poll(() => scale(page)).toBeCloseTo(0.92);
+  await resetCamera(page);
   await expect.poll(() => transform(page)).toBe(before);
   await page.mouse.move(760, 460);
   await page.mouse.wheel(0, -150);
-  await expect.poll(async () => parseInt(await page.getByLabel('확대 배율').innerText())).toBeGreaterThan(80);
+  await expect.poll(() => scale(page)).toBeGreaterThan(0.8);
   await page.getByRole('region', { name: '음식 사진 갤러리' }).focus();
   await page.keyboard.press('Home');
   await expect.poll(() => transform(page)).toBe(before);
@@ -83,7 +89,7 @@ test('mobile touch drag, pinch, reduced motion and keyboard details', async ({ b
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:3100');
-  await expect(page.getByLabel('확대 배율')).toHaveText('64%');
+  await expect.poll(() => scale(page)).toBeCloseTo(0.64);
   const before = await transform(page);
   const cdp = await context.newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 180, y: 430 }] });
@@ -94,8 +100,8 @@ test('mobile touch drag, pinch, reduced motion and keyboard details', async ({ b
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 140, y: 430 }, { x: 240, y: 430 }] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 100, y: 430 }, { x: 280, y: 430 }] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await expect.poll(async () => parseInt(await page.getByLabel('확대 배율').innerText())).toBeGreaterThan(64);
-  await page.getByRole('button', { name: '처음 위치로', exact: true }).tap();
+  await expect.poll(() => scale(page)).toBeGreaterThan(0.64);
+  await resetCamera(page);
   await expect.poll(() => transform(page)).toBe(before);
   await page.screenshot({ path: 'qa-artifacts/mobile.png' });
   const tile = await visibleTile(page);

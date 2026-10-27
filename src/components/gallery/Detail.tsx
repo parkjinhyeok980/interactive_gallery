@@ -63,7 +63,7 @@ export function Detail({ selection, onClose }: { selection: Selection; onClose: 
         <h2 id="detail-title">한 장의 기록</h2>
         <p className="detail-caption">{post.caption}</p>
         <dl><dt>{post.isMock ? '예시 날짜' : '작성일'}</dt><dd><time dateTime={post.timestamp}>{new Intl.DateTimeFormat('ko-KR', { dateStyle: 'long', timeZone: 'Asia/Seoul' }).format(new Date(post.timestamp))}</time></dd></dl>
-        {post.permalink ? <a className="original-link" href={post.permalink} target="_blank" rel="noopener noreferrer">Instagram에서 보기 ↗</a> : <p className="mock-note">DEMO — 실제 게시물 링크는 API 연결 후 제공됩니다.</p>}
+        {post.permalink ? <a className="original-link" href={post.permalink} target="_blank" rel="noopener noreferrer">Instagram에서 보기 ↗</a> : post.isMock && <p className="mock-note">DEMO — 실제 게시물 링크는 API 연결 후 제공됩니다.</p>}
         {post.media.length > 1 && <div className="carousel-controls"><button aria-label="이전 사진" onClick={() => setIndex(i => (i - 1 + post.media.length) % post.media.length)}>←</button><span aria-live="polite">{String(index + 1).padStart(2, '0')} / {String(post.media.length).padStart(2, '0')}</span><button aria-label="다음 사진" onClick={() => setIndex(i => (i + 1) % post.media.length)}>→</button></div>}
       </div>
     </div>
