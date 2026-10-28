@@ -5,6 +5,8 @@ const jobs = new Map<string, Job>();
 const completed = new Map<string, string>();
 let active = 0;
 const LIMIT = 4;
+// Recycled tiles can render an already decoded preview on their first render.
+export function cachedPreview(preview: string) { return completed.get(preview); }
 function pump() {
   while (active < LIMIT && pending.length) {
     const job = pending.shift()!;
@@ -19,7 +21,7 @@ function pump() {
       jobs.delete(job.preview);
       if (ok) {
         completed.set(job.preview, image.src);
-        if (completed.size > 256) completed.delete(completed.keys().next().value!);
+        if (completed.size > 1024) completed.delete(completed.keys().next().value!);
         job.resolve(image.src);
       } else job.reject(new Error('Image unavailable'));
       pump();

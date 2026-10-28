@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useRowFlow } from './useRowFlow';
-import { Camera, Size, clampCamera, zoomWithinBounds, visibleTiles, layoutMetrics, type RepeatedTile } from '@/lib/gallery/geometry';
+import { Camera, Size, clampCamera, fitScale, zoomWithinBounds, visibleTiles, layoutMetrics, type RepeatedTile } from '@/lib/gallery/geometry';
 
 export function useCamera(count: number, paused: boolean) {
   const postCount = useRef(count);
@@ -15,6 +15,7 @@ export function useCamera(count: number, paused: boolean) {
   const dragged = useRef(false);
   const drift = useRowFlow(planeRef, viewportRef, paused);
   const [tiles, setTiles] = useState<RepeatedTile[]>([]);
+  const mountedTiles = useRef(new Map<string, RepeatedTile>());
   const reduced = useRef(false);
   const initialized = useRef(false);
   const controls = useRef({ zoom: (_factor: number) => {}, reset: () => {} });
@@ -30,11 +31,11 @@ export function useCamera(count: number, paused: boolean) {
     let velocity = { x: 0, y: 0 }, lastTime = 0, lastMove = 0, distance = 0, travel = 0;
     const worldAt = (scale: number) => layoutMetrics(postCount.current, size.current, scale);
     const fit = (value: Camera) => {
-      const scale = clampCamera(value, size.current).scale;
+      const scale = clampCamera(value, size.current, worldAt(value.scale)).scale;
       return clampCamera({ ...value, scale }, size.current, worldAt(scale));
     };
     const center = () => {
-      const scale = size.current.width < 600 ? 0.45 : 0.5;
+      const scale = fitScale(size.current, worldAt(1));
       return fit({ x: (size.current.width - layoutMetrics(initialCount.current, size.current, scale).width * scale) / 2, y: 0, scale });
     };
     let frame = 0, lastTick = performance.now();
@@ -48,7 +49,13 @@ export function useCamera(count: number, paused: boolean) {
     resize.observe(el);
     let tileSignature = '';
     const publish = () => {
-      const next = visibleTiles(postCount.current, camera.current, size.current, drift.current);
+      const next = visibleTiles(postCount.current, camera.current, size.current, drift.current).map(tile => {
+        // Appending pages changes the negative-column modulo first (left edge).
+        // Keep mounted cells attached to their photo until they leave the buffer.
+        const previous = mountedTiles.current.get(tile.key);
+        return previous && previous.index < postCount.current ? previous : tile;
+      });
+      mountedTiles.current = new Map(next.map(tile => [tile.key, tile]));
       const signature = next.map(tile => `${tile.key}/${tile.index}`).join(',');
       if (signature !== tileSignature) { tileSignature = signature; setTiles(next); }
     };
@@ -61,7 +68,7 @@ export function useCamera(count: number, paused: boolean) {
       const dt = Math.min(delta, 32) / 16.667;
       if (reduced.current) velocity = { x: 0, y: 0 };
       if (!paused && pointers.size === 0 && !reduced.current) {
-        target.current.x += velocity.x * dt;
+        target.current.x += velocity.x * dt; target.current.y += velocity.y * dt;
         velocity.x *= Math.pow(0.9, dt); velocity.y *= Math.pow(0.9, dt);
       }
       target.current = fit(target.current);
@@ -104,10 +111,10 @@ export function useCamera(count: number, paused: boolean) {
         pointers.set(e.pointerId, p);
         const nextDistance = Math.hypot(...getDelta());
         target.current = zoomWithinBounds(target.current, target.current.scale * nextDistance / Math.max(distance, 1), cx, cy, size.current, worldAt(target.current.scale));
-        target.current.x += dx / 2; distance = nextDistance; dragged.current = true;
+        target.current.x += dx / 2; target.current.y += dy / 2; distance = nextDistance; dragged.current = true;
       } else {
-        pointers.set(e.pointerId, p); target.current.x += dx;
-        velocity = { x: dx * 16.667 / dt, y: 0 };
+        pointers.set(e.pointerId, p); target.current.x += dx; target.current.y += dy;
+        velocity = { x: dx * 16.667 / dt, y: dy * 16.667 / dt };
       }
     };
     const up = (e: PointerEvent) => {

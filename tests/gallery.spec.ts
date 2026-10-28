@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockPosts } from '../src/lib/data/mock';
-import { createLayout, clampCamera, zoomAt, layoutMetrics, visibleTiles, TILE_SIZE, ROW_PITCH, EDGE_PADDING } from '../src/lib/gallery/geometry';
+import { createLayout, clampCamera, fitScale, zoomAt, layoutMetrics, visibleTiles, TILE_SIZE, ROW_PITCH, EDGE_PADDING } from '../src/lib/gallery/geometry';
 
 const transform = (page: Page) => page.locator('.gallery-plane').evaluate(el => (el as HTMLElement).style.transform);
 const scale = (page: Page) => page.locator('.gallery-plane').evaluate(el => Number((el as HTMLElement).style.transform.match(/scale\(([^)]+)\)/)?.[1]));
@@ -36,14 +36,16 @@ test('uniform tiles do not overlap; zoom anchors hold and movement is unbounded'
   expect(world.tiles.every(tile => tile.width === TILE_SIZE && tile.height === TILE_SIZE)).toBe(true);
 });
 
-test('responsive rows fit entirely and every post is reachable horizontally', () => {
+test('five fixed rows preserve every post and coordinates at every zoom', () => {
   for (const count of [1, 25, 48, 600, 608]) for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) for (const requested of [.45, .5, 1, 1.8]) {
-    const scale = clampCamera({ x: 0, y: 0, scale: requested }, size).scale;
-    const world = createLayout(count, size, scale);
+    const world = createLayout(count);
+    const scale = clampCamera({ x: 0, y: 0, scale: requested }, size, world).scale;
     const camera = clampCamera({ x: 0, y: -1e6, scale }, size, world);
-    expect(camera.y).toBeGreaterThanOrEqual(EDGE_PADDING - .001);
-    expect(camera.y + world.height * scale).toBeLessThanOrEqual(size.height - EDGE_PADDING + .001);
-    expect(clampCamera({ ...camera, y: 1e6 }, size, world).y).toBe(camera.y);
+    expect(world.rows).toBe(Math.min(5, count));
+    expect(world.tiles).toEqual(createLayout(count).tiles);
+    expect(camera.scale).toBeGreaterThanOrEqual(fitScale(size, world));
+    expect(camera.y).toBeCloseTo(Math.min((size.height - world.height * scale) / 2, size.height - EDGE_PADDING - world.height * scale));
+    expect(clampCamera({ ...camera, y: 1e6 }, size, world).y).toBeLessThanOrEqual(Math.max(EDGE_PADDING, (size.height - world.height * scale) / 2) + .001);
     expect(world.tiles).toHaveLength(count);
     const seen = new Set<number>();
     let allFit = true, bounded = true;
@@ -51,8 +53,7 @@ test('responsive rows fit entirely and every post is reachable horizontally', ()
       const tiles = visibleTiles(count, { ...camera, x: -col * TILE_SIZE * scale }, size);
       bounded &&= tiles.length < 250;
       for (const tile of tiles) {
-        allFit &&= tile.index >= 0 && tile.index < count && tile.y * scale + camera.y >= EDGE_PADDING - .001
-          && (tile.y + tile.height) * scale + camera.y <= size.height - EDGE_PADDING + .001;
+        allFit &&= tile.index >= 0 && tile.index < count;
         seen.add(tile.index);
       }
     }
@@ -61,7 +62,7 @@ test('responsive rows fit entirely and every post is reachable horizontally', ()
   expect(layoutMetrics(600, { width: 1440, height: 900 }, .5)).toMatchObject({ rows: 5, columns: 120 });
 });
 
-test('vertical dragging is inert; zoom and resize fit all rows with 600 posts', async ({ page }) => {
+test('zoom stops at five-row fit and allows vertical dragging only within five rows', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.route('**/api/instagram/posts?after=25', route => route.fulfill({ json: {
     posts: Array.from({ length: 575 }, (_, i) => ({ ...mockPosts[i % mockPosts.length], id: `bounds-${i}` })), nextCursor: null,
@@ -69,6 +70,9 @@ test('vertical dragging is inert; zoom and resize fit all rows with 600 posts', 
   await page.goto('/');
   await expect(page.locator('.gallery-plane')).toHaveCSS('width', `${layoutMetrics(600).width}px`);
   const before = await transform(page);
+  const minimum = await scale(page);
+  await page.mouse.wheel(0, 1000);
+  await expect.poll(() => scale(page)).toBeCloseTo(minimum);
   for (const [from, to] of [[780, 120], [120, 780]]) {
     await page.mouse.move(700, from); await page.mouse.down();
     await page.mouse.move(700, to, { steps: 5 }); await page.mouse.up();
@@ -77,18 +81,29 @@ test('vertical dragging is inert; zoom and resize fit all rows with 600 posts', 
   const fits = () => page.locator('.gallery-row').evaluateAll(rows => rows.every(row => {
     const rect = row.getBoundingClientRect(); return rect.top >= 15.9 && rect.bottom <= innerHeight - 15.9;
   }));
+  await expect.poll(fits).toBe(true);
+  const rowPositions = await page.locator('.gallery-row').evaluateAll(rows => rows.map(row => (row as HTMLElement).style.top));
   for (const delta of [-150, -150, 150]) {
     const previous = await scale(page); await page.mouse.wheel(0, delta);
     await expect.poll(() => scale(page)).not.toBe(previous);
-    await expect.poll(fits).toBe(true);
+    expect(await page.locator('.gallery-row').evaluateAll(rows => rows.map(row => (row as HTMLElement).style.top))).toEqual(rowPositions);
   }
+  const zoomed = await transform(page);
+  await page.mouse.move(700, 700); await page.mouse.down();
+  await page.mouse.move(700, 100, { steps: 5 }); await page.mouse.up();
+  await expect.poll(() => transform(page)).not.toBe(zoomed);
+  await expect.poll(() => page.locator('.gallery-row').last().evaluate(row => row.getBoundingClientRect().bottom)).toBeCloseTo(900 - EDGE_PADDING, 1);
+  const bottom = await transform(page);
+  await page.mouse.move(700, 700); await page.mouse.down();
+  await page.mouse.move(700, 100, { steps: 5 }); await page.mouse.up();
+  expect(await transform(page)).toBe(bottom);
   await page.setViewportSize({ width: 844, height: 390 });
-  await expect.poll(fits).toBe(true);
+  await expect(page.locator('.gallery-row')).toHaveCount(5);
   const beforePan = await transform(page);
   await page.mouse.move(400, 200);
   await page.mouse.wheel(200, 0);
   await expect.poll(() => transform(page)).not.toBe(beforePan);
-  await expect.poll(fits).toBe(true);
+  await expect(page.locator('.gallery-row')).toHaveCount(5);
 });
 
 test('desktop exploration, details, carousel and restored camera', async ({ page }) => {
@@ -100,7 +115,7 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   await expect(page.locator('.wordmark')).toHaveText('hyeoki');
   await expect(page.locator('.gallery-ui')).toHaveText('hyeoki');
   await expect(page.locator('.photo-tile').first()).toBeAttached();
-  await expect.poll(() => scale(page)).toBeCloseTo(0.5);
+  await expect.poll(() => scale(page)).toBeCloseTo(fitScale({ width: 1440, height: 900 }, createLayout(48)));
   expect(await page.locator('.photo-tile').count()).toBeLessThan(250);
   await expect.poll(() => page.locator('.photo-tile img').evaluateAll(images => images.some(img => (img as HTMLImageElement).naturalWidth > 0))).toBeTruthy();
   await page.screenshot({ path: 'qa-artifacts/desktop.png' });
@@ -114,14 +129,14 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   await resetCamera(page);
   await expect.poll(() => transform(page)).toBe(before);
   await page.keyboard.press('+');
-  await expect.poll(() => scale(page)).toBeCloseTo(0.575);
+  await expect.poll(() => scale(page)).toBeCloseTo(fitScale({ width: 1440, height: 900 }, createLayout(48)) * 1.15);
   await resetCamera(page);
   await expect.poll(() => transform(page)).toBe(before);
   await page.mouse.move(760, 460);
   await page.mouse.wheel(0, -150);
-  await expect.poll(() => scale(page)).toBeGreaterThan(0.5);
+  await expect.poll(() => scale(page)).toBeGreaterThan(fitScale({ width: 1440, height: 900 }, createLayout(48)));
   await page.mouse.wheel(0, 150);
-  await expect.poll(() => scale(page)).toBeCloseTo(0.5);
+  await expect.poll(() => scale(page)).toBeCloseTo(fitScale({ width: 1440, height: 900 }, createLayout(48)));
   await page.keyboard.press('ArrowLeft');
   await expect.poll(() => transform(page)).toBe(before);
   await resetCamera(page);
@@ -129,7 +144,7 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   await page.keyboard.down('Control');
   await page.mouse.wheel(0, -150);
   await page.keyboard.up('Control');
-  await expect.poll(() => scale(page)).toBeGreaterThan(0.5);
+  await expect.poll(() => scale(page)).toBeGreaterThan(fitScale({ width: 1440, height: 900 }, createLayout(48)));
   await page.getByRole('region', { name: '음식 사진 갤러리' }).focus();
   await page.keyboard.press('Home');
   await expect.poll(() => transform(page)).toBe(before);
@@ -147,12 +162,46 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   await page.keyboard.press('Shift+Tab');
   await expect(page.getByRole('button', { name: '다음 사진' })).toBeFocused();
   await expect.poll(() => page.locator('.detail-image img').evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await expect(page.locator('.detail-image')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  const dimensions = await page.locator('.detail-image img').evaluate(node => {
+    const img = node as HTMLImageElement, rect = img.getBoundingClientRect(), parent = img.parentElement!.getBoundingClientRect();
+    return { actual: rect.width / rect.height, natural: img.naturalWidth / img.naturalHeight, height: rect.height, frame: parent.height };
+  });
+  expect(dimensions.actual).toBeCloseTo(dimensions.natural, 2);
+  expect(dimensions.height).toBeCloseTo(dimensions.frame, 1);
   await page.screenshot({ path: 'qa-artifacts/detail.png' });
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(tile).toBeFocused();
   await expect.poll(() => transform(page)).toBe(before);
   expect(errors).toEqual([]);
+});
+
+test('portrait details use intrinsic dimensions without a black frame on desktop and mobile', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.route('**/_next/image?**', async route => {
+    if (Number(new URL(route.request().url()).searchParams.get('w')) >= 384) {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="800"><rect width="400" height="800" fill="tan"/></svg>' });
+    } else await route.continue();
+  });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport); await page.goto('/');
+    await expect(page.locator('.gallery-row')).toHaveCount(5);
+    await (await visibleTile(page)).click();
+    const img = page.locator('.detail-image img');
+    await expect.poll(() => img.evaluate(node => {
+      const image = node as HTMLImageElement;
+      return image.naturalWidth / image.naturalHeight;
+    })).toBeCloseTo(.5, 2);
+    const box = await img.boundingBox();
+    expect(box!.width / box!.height).toBeCloseTo(.5, 2);
+    expect(box!.height).toBeLessThan(viewport.height);
+    await expect(page.locator('.detail-image')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    const frame = await page.locator('.detail-image').boundingBox();
+    expect(frame!.width).toBeCloseTo(box!.width, 1);
+    expect(frame!.height).toBeCloseTo(box!.height, 1);
+    await page.keyboard.press('Escape');
+  }
 });
 
 test('mouse dragging traverses all directions with bounded rendering', async ({ page }) => {
@@ -170,7 +219,8 @@ test('mouse dragging traverses all directions with bounded rendering', async ({ 
     await page.mouse.move(700 + dx, 450 + dy, { steps: 8 });
     await page.mouse.up();
     const expected = clampCamera({ ...before, x: before.x + dx, y: before.y + dy }, page.viewportSize()!, createLayout(48));
-    await expect.poll(() => transform(page)).toBe(`translate3d(${expected.x}px, ${expected.y}px, 0px) scale(${expected.scale})`);
+    await expect.poll(() => page.locator('.gallery-plane').evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).m41)).toBeCloseTo(expected.x, 2);
+    await expect.poll(() => page.locator('.gallery-plane').evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).m42)).toBeCloseTo(expected.y, 2);
     await expect.poll(() => page.evaluate(() => {
       return [[10, innerHeight / 2], [innerWidth - 10, innerHeight / 2], [innerWidth / 2, innerHeight / 2]]
         .every(([x, y]) => [0, -24, 24].some(offset => !!document.elementFromPoint(x, y + offset)?.closest('.photo-tile')));
@@ -193,7 +243,7 @@ test('mobile touch drag, pinch, reduced motion and keyboard details', async ({ b
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:3100');
   await expect.poll(() => page.locator('.gallery-plane').evaluate(el => parseFloat(getComputedStyle(el).height))).toBeCloseTo(createLayout(48, { width: 390, height: 844 }, .45).height, 1);
-  await expect.poll(() => scale(page)).toBeCloseTo(0.45);
+  await expect.poll(() => scale(page)).toBeCloseTo(fitScale({ width: 390, height: 844 }, createLayout(48)));
   const before = await transform(page);
   const cdp = await context.newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 180, y: 430 }] });
@@ -204,7 +254,7 @@ test('mobile touch drag, pinch, reduced motion and keyboard details', async ({ b
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 140, y: 430 }, { x: 240, y: 430 }] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 100, y: 430 }, { x: 280, y: 430 }] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await expect.poll(() => scale(page)).toBeGreaterThan(0.45);
+  await expect.poll(() => scale(page)).toBeGreaterThan(fitScale({ width: 390, height: 844 }, createLayout(48)));
   await resetCamera(page);
   await expect.poll(() => transform(page)).toBe(before);
   await page.screenshot({ path: 'qa-artifacts/mobile.png' });

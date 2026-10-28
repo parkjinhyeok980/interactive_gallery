@@ -1,15 +1,17 @@
 export type Camera = { x: number; y: number; scale: number };
 export type Size = { width: number; height: number };
 export type Tile = { index: number; x: number; y: number; width: number; height: number };
-export const MIN_ZOOM = 0.45;
+export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 1.8;
 export const TILE_SIZE = 280;
 export const ROW_GAP = 24;
 export const ROW_PITCH = TILE_SIZE + ROW_GAP;
 export const EDGE_PADDING = 16;
-export function layoutMetrics(count: number, viewport: Size = { width: 1440, height: 900 }, scale = 0.5) {
-  const available = Math.max(TILE_SIZE * MIN_ZOOM, viewport.height - EDGE_PADDING * 2);
-  const rows = Math.max(1, Math.min(count || 1, Math.floor((available / scale + ROW_GAP) / ROW_PITCH)));
+export function fitScale(viewport: Size, world: Size) {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (viewport.height - EDGE_PADDING * 2) / world.height));
+}
+export function layoutMetrics(count: number, _viewport?: Size, _scale?: number) {
+  const rows = Math.max(1, Math.min(count || 1, 5));
   const columns = Math.max(1, Math.ceil(count / rows));
   return { rows, columns, width: columns * TILE_SIZE, height: rows * ROW_PITCH - ROW_GAP };
 }
@@ -22,10 +24,12 @@ export function createLayout(count: number, viewport?: Size, scale = 0.5) {
   return { tiles, ...metrics };
 }
 export function clampCamera(camera: Camera, viewport?: Size, world?: Size): Camera {
-  const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, viewport?.height ? (viewport.height - EDGE_PADDING * 2) / TILE_SIZE : MAX_ZOOM, camera.scale));
+  const minimum = viewport?.height && world ? fitScale(viewport, world) : MIN_ZOOM;
+  const scale = Math.max(minimum, Math.min(MAX_ZOOM, camera.scale));
   const height = world ? world.height * scale : 0;
   const y = viewport && world && viewport.height
-    ? (viewport.height - height) / 2
+    ? height <= viewport.height - EDGE_PADDING * 2 + .001 ? (viewport.height - height) / 2
+      : Math.max(viewport.height - EDGE_PADDING - height, Math.min(EDGE_PADDING, camera.y))
     : camera.y;
   return { ...camera, y, scale };
 }

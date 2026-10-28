@@ -29,6 +29,8 @@ export function Detail({ selection, onClose }: { selection: Selection; onClose: 
       if (closing.current) return;
       closing.current = true;
       gsap.killTweensOf([root, image, copy]);
+      // Carousel media and decoded image dimensions can differ from the opening photo.
+      const destination = image.getBoundingClientRect();
       const bounds = trigger.isConnected ? trigger.getBoundingClientRect() : rect;
       const restore = () => { onClose(); requestAnimationFrame(() => trigger.isConnected && trigger.focus({ preventScroll: true })); };
       if (reduced) { restore(); return; }

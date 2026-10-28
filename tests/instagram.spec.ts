@@ -113,7 +113,7 @@ test('first photos remain usable while older photos are delayed; retry preserves
   await expect.poll(() => page.locator('.photo-tile img').evaluateAll(images => images.some(img => (img as HTMLImageElement).naturalWidth > 0))).toBeTruthy();
   const camera = await page.locator('.gallery-plane').evaluate(el => {
     const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-    return { x: matrix.m41, scale: matrix.a };
+    return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
   });
   fail = false;
   await page.getByRole('button', { name: '다시 시도' }).click();
@@ -122,7 +122,7 @@ test('first photos remain usable while older photos are delayed; retry preserves
   await expect.poll(() => page.locator('.gallery-plane').evaluate(el => {
     const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
     return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
-  })).toEqual({ ...camera, y: (900 - createLayout(48).height * camera.scale) / 2 });
+  })).toEqual(camera);
 });
 
 test('OAuth rejects cross-origin requests and invalid admin keys', async ({ request }) => {
