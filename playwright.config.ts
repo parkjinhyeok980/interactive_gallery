@@ -18,6 +18,7 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       GALLERY_SOURCE: 'mock', INSTAGRAM_LOCAL_OAUTH: 'true',
+      GALLERY_IMAGE_CACHE_DIR: `${process.cwd()}/qa-artifacts/image-cache-tests`,
       INSTAGRAM_APP_ID: 'test-app', INSTAGRAM_APP_SECRET: 'test-secret',
       INSTAGRAM_REDIRECT_URI: 'http://127.0.0.1:3100/api/instagram/callback',
       INSTAGRAM_CONNECT_KEY: 'test-connect-key-for-local-tests-only',

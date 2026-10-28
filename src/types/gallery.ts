@@ -3,6 +3,7 @@ export type GalleryMedia = {
   type: 'IMAGE' | 'VIDEO';
   url: string;
   thumbnailUrl?: string;
+  cachedImageUrl?: string;
   width: number;
   height: number;
   alt: string;

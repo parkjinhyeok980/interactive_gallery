@@ -5,6 +5,7 @@ import { mockPosts } from './mock';
 import { InstagramClient, InstagramError } from '../instagram/api';
 import { accessToken, required } from '../instagram/session';
 import { PageCache } from './pageCache';
+import { cacheImageSources } from '../media/serverCache';
 
 const processState = globalThis as typeof globalThis & { instagramPages?: PageCache<GalleryPage>; instagramClients?: PageCache<InstagramClient> };
 const pages = processState.instagramPages ??= new PageCache<GalleryPage>();
@@ -21,7 +22,7 @@ export async function getGalleryPage(after?: string): Promise<GalleryPage> {
   const key = createHash('sha256').update(JSON.stringify([token, version, username, after || null])).digest('hex');
   const clientKey = createHash('sha256').update(JSON.stringify([token, version, username])).digest('hex');
   const client = await clients.get(clientKey, async () => new InstagramClient(token, version));
-  return pages.get(key, () => client.postsPage(username, after));
+  return pages.get(key, async () => cacheImageSources(await client.postsPage(username, after), username));
 }
 
 const repository: GalleryRepository = { async getPosts() {
