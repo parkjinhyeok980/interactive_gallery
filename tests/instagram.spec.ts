@@ -140,3 +140,18 @@ test('OAuth uses minimal scope and HttpOnly state; rejects tampering and denial'
   const denied = await request.get(`/api/instagram/callback?state=${url.searchParams.get('state')}&error=access_denied`);
   expect(denied.status()).toBe(400);
 });
+
+
+test('pagination reuses account verification and isolates different usernames', async () => {
+  let profiles = 0;
+  const client = new InstagramClient('token', 'v25.0', async input => {
+    if (new URL(String(input)).pathname.endsWith('/me')) {
+      profiles++;
+      return json({ user_id: '99', username: 'hyeoki_foodie' });
+    }
+    return json({ data: [image] });
+  });
+  await Promise.all([client.postsPage('hyeoki_foodie'), client.postsPage('hyeoki_foodie', 'next')]);
+  expect(profiles).toBe(1);
+  await expect(client.postsPage('another_account')).rejects.toMatchObject({ code: 'authentication' });
+});

@@ -1,9 +1,22 @@
 'use client';
-import Image from 'next/image';
-import { memo, useState } from 'react';
+import Image, { getImageProps } from 'next/image';
+import { memo, useEffect, useState } from 'react';
 import type { GalleryMedia } from '@/types/gallery';
-export const Photo = memo(function Photo({ media, sizes, priority = false }: { media: GalleryMedia; sizes: string; priority?: boolean }) {
+import { loadPreview } from './previewQueue';
+export const Photo = memo(function Photo({ media, sizes, priority = false, enabled = true }: { media: GalleryMedia; sizes: string; priority?: boolean; enabled?: boolean }) {
   const [failed, setFailed] = useState(false);
+  const [direct, setDirect] = useState(false);
+  const [preview, setPreview] = useState<string>();
   const source = media.type === 'VIDEO' ? media.thumbnailUrl : media.url;
-  return failed || !source ? <span className="image-fallback">{media.type === 'VIDEO' ? '영상 보기' : '이미지를 불러올 수 없습니다'}</span> : <Image src={source} alt={media.alt} fill sizes={sizes} draggable={false} priority={priority} onError={() => setFailed(true)} />;
+  useEffect(() => {
+    if (priority || !source || !enabled) return;
+    let cancelled = false;
+    const { props } = getImageProps({ src: source, alt: '', width: 192, height: 192 });
+    loadPreview(source, props.src).then(url => { if (!cancelled) setPreview(url); }, () => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [source, priority, enabled]);
+  if (failed || !source) return <span className="image-fallback">{media.type === 'VIDEO' ? '영상 보기' : '이미지를 불러올 수 없습니다'}</span>;
+  // Full resolution is requested only for the selected photo.
+  if (priority) return <Image src={source} alt={media.alt} fill unoptimized={direct} sizes={sizes} draggable={false} priority onError={() => { if (!direct) setDirect(true); else setFailed(true); }} />;
+  return <span className="photo-placeholder">{preview && <img src={preview} alt={media.alt} decoding="async" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}</span>;
 });

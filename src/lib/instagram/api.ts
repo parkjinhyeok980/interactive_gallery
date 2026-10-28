@@ -1,5 +1,6 @@
 // Server callers only: do not return raw API responses or errors to the browser.
 import type { GalleryMedia, GalleryPage, GalleryPost } from '../../types/gallery';
+import { PageCache } from '../data/pageCache';
 
 export class InstagramError extends Error {
   constructor(public readonly code: 'configuration' | 'authentication' | 'rate_limit' | 'upstream' | 'pagination', public readonly status = 502) {
@@ -61,6 +62,7 @@ export function normalizePost(post: Media, children: Media[] = []): GalleryPost 
 }
 
 export class InstagramClient {
+  private profiles = new PageCache<{ user_id: string; username: string }>();
   constructor(private token: string, private version: string, private fetcher: Fetcher = fetch) {
     if (!token || !/^v\d+\.\d+$/.test(version)) throw new InstagramError('configuration', 503);
   }
@@ -70,9 +72,11 @@ export class InstagramClient {
     return requestJson<T>(url, { headers: { Authorization: `Bearer ${this.token}` } }, this.fetcher);
   }
   async profile(expectedUsername: string) {
+    return this.profiles.get(expectedUsername.toLowerCase(), async () => {
     const profile = await this.get<{ user_id: string; username: string }>('me', { fields: 'user_id,username' });
     if (!/^\d+$/.test(profile.user_id) || profile.username?.toLowerCase() !== expectedUsername.toLowerCase()) throw new InstagramError('authentication', 401);
     return profile;
+    });
   }
   async collection<T>(path: string, fields: string, maxPages = 40): Promise<T[]> {
     const items: T[] = [], seen = new Set<string>();

@@ -4,15 +4,17 @@ export type Tile = { index: number; x: number; y: number; width: number; height:
 export const MIN_ZOOM = 0.45;
 export const MAX_ZOOM = 1.8;
 export const TILE_SIZE = 280;
+export const ROW_GAP = 24;
+export const ROW_PITCH = TILE_SIZE + ROW_GAP;
 export const COLUMNS = 8;
 export const WORLD_WIDTH = TILE_SIZE * COLUMNS;
 export function createLayout(count: number): { tiles: Tile[]; width: number; height: number } {
   const rows = Math.max(1, Math.ceil(count / COLUMNS));
   const tiles = Array.from({ length: count ? rows * COLUMNS : 0 }, (_, cell) => ({
-    index: cell % count, x: (cell % COLUMNS) * TILE_SIZE, y: Math.floor(cell / COLUMNS) * TILE_SIZE,
+    index: cell % count, x: (cell % COLUMNS) * TILE_SIZE, y: Math.floor(cell / COLUMNS) * ROW_PITCH,
     width: TILE_SIZE, height: TILE_SIZE,
   }));
-  return { tiles, width: WORLD_WIDTH, height: rows * TILE_SIZE };
+  return { tiles, width: WORLD_WIDTH, height: rows * ROW_PITCH };
 }
 export function clampCamera(camera: Camera, _viewport?: Size, _world?: Size): Camera {
   const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, camera.scale));
@@ -20,17 +22,20 @@ export function clampCamera(camera: Camera, _viewport?: Size, _world?: Size): Ca
 }
 export type RepeatedTile = Tile & { key: string };
 const modulo = (value: number, period: number) => ((value % period) + period) % period;
-export function visibleTiles(count: number, camera: Camera, viewport: Size): RepeatedTile[] {
+export function visibleTiles(count: number, camera: Camera, viewport: Size, drift = 0): RepeatedTile[] {
   if (!count || !viewport.width || !viewport.height) return [];
   const rows = Math.ceil(count / COLUMNS), margin = TILE_SIZE;
-  const left = Math.floor((-camera.x / camera.scale - margin) / TILE_SIZE);
-  const right = Math.ceil(((viewport.width - camera.x) / camera.scale + margin) / TILE_SIZE);
-  const top = Math.floor((-camera.y / camera.scale - margin) / TILE_SIZE);
-  const bottom = Math.ceil(((viewport.height - camera.y) / camera.scale + margin) / TILE_SIZE);
+  const top = Math.floor((-camera.y / camera.scale - margin) / ROW_PITCH);
+  const bottom = Math.ceil(((viewport.height - camera.y) / camera.scale + margin) / ROW_PITCH);
   const tiles: RepeatedTile[] = [];
-  for (let row = top; row < bottom; row++) for (let col = left; col < right; col++) {
+  for (let row = top; row < bottom; row++) {
+    const offset = (row % 2 === 0 ? 1 : -1) * drift;
+    const left = Math.floor((-camera.x / camera.scale - margin - offset) / TILE_SIZE);
+    const right = Math.ceil(((viewport.width - camera.x) / camera.scale + margin - offset) / TILE_SIZE);
+    for (let col = left; col < right; col++) {
     tiles.push({ key: `${col}:${row}`, index: (modulo(row, rows) * COLUMNS + modulo(col, COLUMNS)) % count,
-      x: col * TILE_SIZE, y: row * TILE_SIZE, width: TILE_SIZE, height: TILE_SIZE });
+      x: col * TILE_SIZE, y: row * ROW_PITCH, width: TILE_SIZE, height: TILE_SIZE });
+    }
   }
   return tiles;
 }

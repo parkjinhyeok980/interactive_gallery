@@ -6,8 +6,9 @@ import { InstagramClient, InstagramError } from '../instagram/api';
 import { accessToken, required } from '../instagram/session';
 import { PageCache } from './pageCache';
 
-const processState = globalThis as typeof globalThis & { instagramPages?: PageCache<GalleryPage> };
+const processState = globalThis as typeof globalThis & { instagramPages?: PageCache<GalleryPage>; instagramClients?: PageCache<InstagramClient> };
 const pages = processState.instagramPages ??= new PageCache<GalleryPage>();
+const clients = processState.instagramClients ??= new PageCache<InstagramClient>(300_000, 10);
 export async function getGalleryPage(after?: string): Promise<GalleryPage> {
   const source = process.env.GALLERY_SOURCE || 'mock';
   if (source === 'mock') {
@@ -18,7 +19,9 @@ export async function getGalleryPage(after?: string): Promise<GalleryPage> {
   const token = await accessToken(), version = required('INSTAGRAM_API_VERSION'), username = required('INSTAGRAM_USERNAME');
   // Credential/account changes cannot reuse another connection's cached pages.
   const key = createHash('sha256').update(JSON.stringify([token, version, username, after || null])).digest('hex');
-  return pages.get(key, () => new InstagramClient(token, version).postsPage(username, after));
+  const clientKey = createHash('sha256').update(JSON.stringify([token, version, username])).digest('hex');
+  const client = await clients.get(clientKey, async () => new InstagramClient(token, version));
+  return pages.get(key, () => client.postsPage(username, after));
 }
 
 const repository: GalleryRepository = { async getPosts() {
