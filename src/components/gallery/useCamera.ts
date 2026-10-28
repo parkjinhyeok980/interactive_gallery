@@ -30,10 +30,7 @@ export function useCamera(count: number, paused: boolean) {
     const pointers = new Map<number, { x: number; y: number }>();
     let velocity = { x: 0, y: 0 }, lastTime = 0, lastMove = 0, distance = 0, travel = 0;
     const worldAt = (scale: number) => layoutMetrics(postCount.current, size.current, scale);
-    const fit = (value: Camera) => {
-      const scale = clampCamera(value, size.current, worldAt(value.scale)).scale;
-      return clampCamera({ ...value, scale }, size.current, worldAt(scale));
-    };
+    const fit = (value: Camera) => clampCamera(value, size.current, worldAt(value.scale));
     const center = () => {
       const scale = fitScale(size.current, worldAt(1));
       return fit({ x: (size.current.width - layoutMetrics(initialCount.current, size.current, scale).width * scale) / 2, y: 0, scale });
@@ -79,7 +76,9 @@ export function useCamera(count: number, paused: boolean) {
       const settled = Math.abs(c.x - t.x) < 0.05 && Math.abs(c.y - t.y) < 0.05 && Math.abs(c.scale - t.scale) < 0.0001 && Math.abs(velocity.x) + Math.abs(velocity.y) < 0.05;
       if (settled) { Object.assign(c, t); velocity = { x: 0, y: 0 }; }
       const metrics = worldAt(c.scale);
-      plane.style.width = `${metrics.width}px`; plane.style.height = `${metrics.height}px`;
+      const width = `${metrics.width}px`, height = `${metrics.height}px`;
+      if (plane.style.width !== width) plane.style.width = width;
+      if (plane.style.height !== height) plane.style.height = height;
       const transform = `translate3d(${c.x}px,${c.y}px,0) scale(${c.scale})`;
       if (plane.style.transform !== transform) plane.style.transform = transform;
       const finalChange = settled && (c.x !== published.x || c.y !== published.y || c.scale !== published.scale);

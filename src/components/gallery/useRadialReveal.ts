@@ -35,6 +35,8 @@ export function useRadialReveal(planeRef: RefObject<HTMLDivElement | null>, cont
       ctx.add(() => {
         gsap.set(trigger, { opacity: 0 });
         for (const { tile, ...position } of targets) {
+          // Unaffected tiles need no tween or GSAP style bookkeeping.
+          if (!position.x && !position.y && position.scale === 1 && !moved.has(tile)) continue;
           moved.add(tile);
           gsap.to(tile, { ...position, transformOrigin: 'center center', duration: reduced ? 0 : .7, ease: 'power3.inOut', overwrite: true });
         }

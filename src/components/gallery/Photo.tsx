@@ -14,13 +14,14 @@ export const Photo = memo(function Photo({ media, sizes, priority = false, enabl
   useEffect(() => {
     if (priority || !source || !enabled) return;
     let cancelled = false;
-    const { props } = getImageProps({ src: source, alt: '', width: 192, height: 192 });
-    const fallback = getImageProps({ src: original || source, alt: '', width: 192, height: 192 }).props.src;
+    const fallback = original && original !== source
+      ? getImageProps({ src: original, alt: '', width: 192, height: 192 }).props.src
+      : previewUrl;
     setFailed(false);
-    const subscription = loadPreview(props.src, fallback);
+    const subscription = loadPreview(previewUrl, fallback);
     subscription.promise.then(url => { if (!cancelled) setPreview(url); }, () => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; subscription.release(); };
-  }, [source, original, priority, enabled]);
+  }, [source, original, previewUrl, priority, enabled]);
   if (failed || !source) return <span className="image-fallback">{media.type === 'VIDEO' ? '영상 보기' : '이미지를 불러올 수 없습니다'}</span>;
   // Full resolution is requested only for the selected photo.
   if (priority) return <Image src={direct ? original || source : source} alt={media.alt} width={initialPreview?.width || media.width} height={initialPreview?.height || media.height}
