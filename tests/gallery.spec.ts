@@ -112,8 +112,8 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   await expect.poll(() => page.locator('.gallery-plane').evaluate(el => parseFloat(getComputedStyle(el).height))).toBeCloseTo(createLayout(48).height, 1);
-  await expect(page.locator('.wordmark')).toHaveText('hyeoki');
-  await expect(page.locator('.gallery-ui')).toHaveText('hyeoki');
+  await expect(page.locator('.wordmark')).toHaveText('hyeoki_foodie');
+  await expect(page.locator('.gallery-ui')).toHaveText('hyeoki_foodie');
   await expect(page.locator('.photo-tile').first()).toBeAttached();
   await expect.poll(() => scale(page)).toBeCloseTo(fitScale({ width: 1440, height: 900 }, createLayout(48)));
   expect(await page.locator('.photo-tile').count()).toBeLessThan(250);

@@ -22,7 +22,7 @@ export function Gallery({ posts }: { posts: GalleryPost[] }) {
   return <main className="gallery-shell">
     <div className="gallery-ui" inert={!!selection}>
       <header className="site-header">
-        <a className="wordmark" href="/" aria-label="Hyeoki 갤러리 처음으로">hyeoki</a>
+        <a className="wordmark" href="/" aria-label="hyeoki_foodie 갤러리 처음으로">hyeoki_foodie</a>
       </header>
     </div>
     <div ref={viewportRef} className="gallery-viewport" tabIndex={0} role="region" aria-label="음식 사진 갤러리" aria-describedby="keyboard-help" inert={!!selection}>
