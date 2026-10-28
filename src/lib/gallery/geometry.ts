@@ -6,34 +6,42 @@ export const MAX_ZOOM = 1.8;
 export const TILE_SIZE = 280;
 export const ROW_GAP = 24;
 export const ROW_PITCH = TILE_SIZE + ROW_GAP;
-export const COLUMNS = 8;
-export const WORLD_WIDTH = TILE_SIZE * COLUMNS;
-export function createLayout(count: number): { tiles: Tile[]; width: number; height: number } {
-  const rows = Math.max(1, Math.ceil(count / COLUMNS));
-  const tiles = Array.from({ length: count ? rows * COLUMNS : 0 }, (_, cell) => ({
-    index: cell % count, x: (cell % COLUMNS) * TILE_SIZE, y: Math.floor(cell / COLUMNS) * ROW_PITCH,
+export const EDGE_PADDING = 16;
+export function layoutMetrics(count: number, viewport: Size = { width: 1440, height: 900 }, scale = 0.5) {
+  const available = Math.max(TILE_SIZE * MIN_ZOOM, viewport.height - EDGE_PADDING * 2);
+  const rows = Math.max(1, Math.min(count || 1, Math.floor((available / scale + ROW_GAP) / ROW_PITCH)));
+  const columns = Math.max(1, Math.ceil(count / rows));
+  return { rows, columns, width: columns * TILE_SIZE, height: rows * ROW_PITCH - ROW_GAP };
+}
+export function createLayout(count: number, viewport?: Size, scale = 0.5) {
+  const metrics = layoutMetrics(count, viewport, scale);
+  const tiles = Array.from({ length: count }, (_, cell) => ({
+    index: cell, x: Math.floor(cell / metrics.rows) * TILE_SIZE, y: (cell % metrics.rows) * ROW_PITCH,
     width: TILE_SIZE, height: TILE_SIZE,
   }));
-  return { tiles, width: WORLD_WIDTH, height: rows * ROW_PITCH };
+  return { tiles, ...metrics };
 }
-export function clampCamera(camera: Camera, _viewport?: Size, _world?: Size): Camera {
-  const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, camera.scale));
-  return { ...camera, scale };
+export function clampCamera(camera: Camera, viewport?: Size, world?: Size): Camera {
+  const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, viewport?.height ? (viewport.height - EDGE_PADDING * 2) / TILE_SIZE : MAX_ZOOM, camera.scale));
+  const height = world ? world.height * scale : 0;
+  const y = viewport && world && viewport.height
+    ? (viewport.height - height) / 2
+    : camera.y;
+  return { ...camera, y, scale };
 }
 export type RepeatedTile = Tile & { key: string };
 const modulo = (value: number, period: number) => ((value % period) + period) % period;
 export function visibleTiles(count: number, camera: Camera, viewport: Size, drift = 0): RepeatedTile[] {
   if (!count || !viewport.width || !viewport.height) return [];
-  const rows = Math.ceil(count / COLUMNS), margin = TILE_SIZE;
-  const top = Math.floor((-camera.y / camera.scale - margin) / ROW_PITCH);
-  const bottom = Math.ceil(((viewport.height - camera.y) / camera.scale + margin) / ROW_PITCH);
+  const { rows } = layoutMetrics(count, viewport, camera.scale), margin = TILE_SIZE;
   const tiles: RepeatedTile[] = [];
-  for (let row = top; row < bottom; row++) {
+  for (let row = 0; row < rows; row++) {
+    const columns = Math.ceil((count - row) / rows);
     const offset = (row % 2 === 0 ? 1 : -1) * drift;
     const left = Math.floor((-camera.x / camera.scale - margin - offset) / TILE_SIZE);
     const right = Math.ceil(((viewport.width - camera.x) / camera.scale + margin - offset) / TILE_SIZE);
     for (let col = left; col < right; col++) {
-    tiles.push({ key: `${col}:${row}`, index: (modulo(row, rows) * COLUMNS + modulo(col, COLUMNS)) % count,
+    tiles.push({ key: `${col}:${row}`, index: row + modulo(col, columns) * rows,
       x: col * TILE_SIZE, y: row * ROW_PITCH, width: TILE_SIZE, height: TILE_SIZE });
     }
   }
@@ -42,6 +50,13 @@ export function visibleTiles(count: number, camera: Camera, viewport: Size, drif
 export function zoomAt(camera: Camera, scale: number, x: number, y: number): Camera {
   const s = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale));
   return { x: x - (x - camera.x) * s / camera.scale, y: y - (y - camera.y) * s / camera.scale, scale: s };
+}
+// Horizontal pointer anchor is preserved; the camera hook fits rows vertically.
+export function zoomWithinBounds(camera: Camera, scale: number, x: number, y: number, viewport: Size, world: Size): Camera {
+  const bounded = clampCamera(camera, viewport, world);
+  const nextScale = clampCamera({ ...bounded, scale }, viewport, world).scale;
+  const next = zoomAt(bounded, nextScale, x, y);
+  return clampCamera(next, viewport, world);
 }
 export function isVisible(tile: Tile, camera: Camera, viewport: Size) {
   const margin = 180;

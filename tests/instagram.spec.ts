@@ -100,7 +100,7 @@ test('page cache shares pending work, expires, isolates keys and retries failure
   expect(await cache.get('bad', load)).toBe(4);
 });
 
-test('first photos remain usable while older photos are delayed; retry preserves camera', async ({ page }) => {
+test('first photos remain usable while older photos are delayed; retry preserves horizontal camera', async ({ page }) => {
   let fail = true;
   await page.route('**/api/instagram/posts?after=25', async route => {
     if (fail) await route.fulfill({ status: 503, body: '{}' });
@@ -111,12 +111,18 @@ test('first photos remain usable while older photos are delayed; retry preserves
   await expect.poll(() => page.locator('.gallery-plane').evaluate(el => parseFloat(getComputedStyle(el).height))).toBeCloseTo(createLayout(25).height, 1);
   await expect(page.getByRole('status')).toContainText('이전 사진');
   await expect.poll(() => page.locator('.photo-tile img').evaluateAll(images => images.some(img => (img as HTMLImageElement).naturalWidth > 0))).toBeTruthy();
-  const transform = await page.locator('.gallery-plane').evaluate(el => (el as HTMLElement).style.transform);
+  const camera = await page.locator('.gallery-plane').evaluate(el => {
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+    return { x: matrix.m41, scale: matrix.a };
+  });
   fail = false;
   await page.getByRole('button', { name: '다시 시도' }).click();
   await expect.poll(() => page.locator('.gallery-plane').evaluate(el => parseFloat(getComputedStyle(el).height))).toBeCloseTo(createLayout(48).height, 1);
   await expect(page.getByRole('status')).toHaveCount(0);
-  expect(await page.locator('.gallery-plane').evaluate(el => (el as HTMLElement).style.transform)).toBe(transform);
+  await expect.poll(() => page.locator('.gallery-plane').evaluate(el => {
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+    return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
+  })).toEqual({ ...camera, y: (900 - createLayout(48).height * camera.scale) / 2 });
 });
 
 test('OAuth rejects cross-origin requests and invalid admin keys', async ({ request }) => {

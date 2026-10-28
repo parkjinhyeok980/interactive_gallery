@@ -13,11 +13,14 @@ export const Photo = memo(function Photo({ media, sizes, priority = false, enabl
     if (priority || !source || !enabled) return;
     let cancelled = false;
     const { props } = getImageProps({ src: source, alt: '', width: 192, height: 192 });
-    loadPreview(original || source, props.src).then(url => { if (!cancelled) setPreview(url); }, () => { if (!cancelled) setFailed(true); });
-    return () => { cancelled = true; };
+    const fallback = getImageProps({ src: original || source, alt: '', width: 192, height: 192 }).props.src;
+    setFailed(false);
+    const subscription = loadPreview(props.src, fallback);
+    subscription.promise.then(url => { if (!cancelled) setPreview(url); }, () => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; subscription.release(); };
   }, [source, original, priority, enabled]);
   if (failed || !source) return <span className="image-fallback">{media.type === 'VIDEO' ? '영상 보기' : '이미지를 불러올 수 없습니다'}</span>;
   // Full resolution is requested only for the selected photo.
   if (priority) return <Image src={direct ? original || source : source} alt={media.alt} fill unoptimized={direct} sizes={sizes} draggable={false} priority onError={() => { if (!direct) setDirect(true); else setFailed(true); }} />;
-  return <span className="photo-placeholder">{preview && <img src={preview} alt={media.alt} decoding="async" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}</span>;
+  return <span className="photo-placeholder">{preview && <img src={preview} alt={media.alt} loading="lazy" decoding="async" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}</span>;
 });
