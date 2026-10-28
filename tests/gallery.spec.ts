@@ -14,7 +14,7 @@ async function visibleTile(page: Page, carousel = false) {
     const box = await tiles.nth(i).boundingBox();
     const screen = page.viewportSize()!;
     // A narrow viewport can clip tile edges; the click/focus target must be visible.
-    if (box && box.x + box.width / 2 > 0 && box.x + box.width / 2 < screen.width && box.y > 80 && box.y + box.height < screen.height - 90) return tiles.nth(i);
+    if (box && box.x > 16 && box.x + box.width < screen.width - 16 && box.y > 80 && box.y + box.height < screen.height - 90) return tiles.nth(i);
   }
   throw new Error('No tile with a visible center');
 }

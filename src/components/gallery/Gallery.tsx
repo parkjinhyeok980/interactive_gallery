@@ -34,13 +34,15 @@ export function Gallery({ posts }: { posts: GalleryPost[] }) {
           return <button className="photo-tile" key={tile.key} data-cell={tile.key} style={{ left: tile.x, top: 0, width: tile.width, height: tile.height }} aria-label={`${tile.index + 1}번 ${post.media[0].alt}${post.media.length > 1 ? ', 여러 사진' : ''} 상세 보기`} onClick={e => {
             if (dragged.current && e.detail !== 0) return;
             const r = e.currentTarget.getBoundingClientRect();
+            const preview = e.currentTarget.querySelector('img');
             setSelectedTile(tile);
-            setSelection({ post, trigger: e.currentTarget, rect: { left: r.left, top: r.top, width: r.width, height: r.height } });
+            setSelection({ post, trigger: e.currentTarget, rect: { left: r.left, top: r.top, width: r.width, height: r.height },
+              preview: preview?.naturalWidth ? { url: preview.currentSrc, width: preview.naturalWidth, height: preview.naturalHeight } : undefined });
           }}><Photo key={post.media[0].id} media={post.media[0]} sizes="192px" /></button>;
         })}</div>)}
       </div>
       {!posts.length && <p className="empty-gallery">아직 표시할 사진이 없습니다.</p>}
     </div>
-    {selection && <Detail selection={selection} onClose={close} />}
+    {selection && <Detail selection={selection} onClose={close} planeRef={planeRef} />}
   </main>;
 }
