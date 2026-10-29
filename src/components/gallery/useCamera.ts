@@ -49,7 +49,11 @@ export function useCamera(count: number, paused: boolean) {
     resize.observe(el);
     let publishedTiles: RepeatedTile[] = [];
     const publish = () => {
-      const next = visibleTiles(postCount.current, camera.current, size.current, drift.current).map(tile => {
+      // A detail camera pan can expose up to half a viewport on either side.
+      // Cover the complete journey without changing the exploration camera.
+      const view = paused ? { ...size.current, width: size.current.width * 2 } : size.current;
+      const position = paused ? { ...camera.current, x: camera.current.x + size.current.width / 2 } : camera.current;
+      const next = visibleTiles(postCount.current, position, view, drift.current).map(tile => {
         // Appending pages changes the negative-column modulo first (left edge).
         // Keep mounted cells attached to their photo until they leave the buffer.
         const previous = mountedTiles.current.get(tile.key);

@@ -50,7 +50,7 @@ test('cached photo visibly travels from its tile while the full-size request is 
   } finally { release(); }
 });
 
-test('photos clear a circular space, caption sits below, and closing restores the gallery', async ({ page }) => {
+test('camera pans horizontally, photos stack within the vertical boundaries, and closing restores the gallery', async ({ page }) => {
   await page.goto('/');
   await expect.poll(() => page.locator('.photo-tile img').count()).toBeGreaterThan(10);
   const tile = page.locator('.photo-tile').filter({ has: page.locator('img') });
@@ -74,14 +74,16 @@ test('photos clear a circular space, caption sits below, and closing restores th
     const content = document.querySelector('.detail-layout')!.getBoundingClientRect();
     const image = document.querySelector('.detail-image')!.getBoundingClientRect();
     const copy = document.querySelector('.detail-copy')!.getBoundingClientRect();
-    const cx = content.left + content.width / 2, cy = content.top + content.height / 2;
-    const radius = Math.hypot(content.width, content.height) / 2 + 24;
     const nodes = [...document.querySelectorAll<HTMLElement>('.photo-tile')].filter(tile => tile.dataset.cell !== key);
     return {
       clear: nodes.every(tile => {
         const r = tile.getBoundingClientRect();
-        const x = Math.max(r.left, Math.min(cx, r.right)), y = Math.max(r.top, Math.min(cy, r.bottom));
-        return Math.hypot(x - cx, y - cy) >= radius - 2;
+        return r.right <= content.left || r.left >= content.right || r.bottom <= content.top || r.top >= content.bottom;
+      }),
+      bounded: nodes.every(tile => {
+        const m = new DOMMatrixReadOnly(getComputedStyle(tile).transform);
+        const r = tile.getBoundingClientRect();
+        return Math.abs(m.m42) < 1 || (r.top >= 15 && r.bottom <= innerHeight - 15);
       }),
       moved: nodes.filter(tile => { const m = new DOMMatrixReadOnly(getComputedStyle(tile).transform); return Math.abs(m.m41) + Math.abs(m.m42) > 10; }).length,
       captionBelow: copy.top >= image.bottom,
@@ -90,12 +92,18 @@ test('photos clear a circular space, caption sits below, and closing restores th
   await expect.poll(async () => (await check()).clear).toBe(true);
   expect((await check()).moved).toBeGreaterThan(5);
   expect((await check()).captionBelow).toBe(true);
+  expect((await check()).bounded).toBe(true);
+  const cameraPan = await page.locator('.gallery-focus').evaluate(node => new DOMMatrixReadOnly(getComputedStyle(node).transform).m41);
+  expect(cameraPan).toBeCloseTo(720 - hit.x - hit.width / 2, 0);
+  const centered = (await page.locator(`[data-cell="${key}"]`).boundingBox())!;
+  expect(centered.x + centered.width / 2).toBeCloseTo(720, 0);
   expect(await page.locator('.photo-tile').count()).toBe(countBefore);
   await page.screenshot({ path: 'qa-artifacts/radial-desktop.png' });
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator(`[data-cell="${key}"]`)).toBeFocused();
   expect(await page.locator('.gallery-plane').getAttribute('style')).toBe(cameraBefore);
+  expect(await page.locator('.gallery-focus').evaluate(node => new DOMMatrixReadOnly(getComputedStyle(node).transform).m41)).toBe(0);
   expect(await page.locator('.photo-tile').evaluateAll(nodes => nodes.every(node => {
     const m = new DOMMatrixReadOnly(getComputedStyle(node).transform);
     return Math.abs(m.m41) < .01 && Math.abs(m.m42) < .01 && Math.abs(m.a - 1) < .01 && getComputedStyle(node).opacity === '1';

@@ -8,7 +8,7 @@ import { useRadialReveal } from './useRadialReveal';
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'long', timeZone: 'Asia/Seoul' });
 
 export type Selection = { post: GalleryPost; rect: { left: number; top: number; width: number; height: number }; trigger: HTMLButtonElement; preview?: { url: string; width: number; height: number } };
-export function Detail({ selection, onClose, planeRef }: { selection: Selection; onClose: () => void; planeRef: RefObject<HTMLDivElement | null> }) {
+export function Detail({ selection, onClose, planeRef, focusRef }: { selection: Selection; onClose: () => void; planeRef: RefObject<HTMLDivElement | null>; focusRef: RefObject<HTMLDivElement | null> }) {
   const { post, rect, trigger } = selection;
   const [index, setIndex] = useState(0);
   const dialog = useRef<HTMLDivElement>(null);
@@ -18,7 +18,21 @@ export function Detail({ selection, onClose, planeRef }: { selection: Selection;
   const closing = useRef(false);
   const closeAction = useRef<() => void>(() => {});
   const content = useRef<HTMLDivElement>(null);
-  const restoreTiles = useRadialReveal(planeRef, content, trigger);
+  useLayoutEffect(() => {
+    const root = dialog.current!, image = photo.current!, copy = info.current!;
+    const fit = () => {
+      // Reserve space for the caption and a visible bottom stack, even in
+      // short embedded previews. The photo itself stays vertically centered.
+      const height = root.clientHeight;
+      const available = height - 2 * (copy.offsetHeight + 14 + 20 + 16 + 24);
+      image.style.setProperty('--detail-photo-height', `${Math.max(40, Math.min(height * .46, available))}px`);
+    };
+    fit();
+    const resize = new ResizeObserver(fit);
+    resize.observe(root); resize.observe(copy);
+    return () => resize.disconnect();
+  }, []);
+  const restoreTiles = useRadialReveal(planeRef, content, trigger, focusRef);
   useLayoutEffect(() => {
     const root = dialog.current!, image = photo.current!, copy = info.current!;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -37,7 +51,9 @@ export function Detail({ selection, onClose, planeRef }: { selection: Selection;
       gsap.killTweensOf([root, image, copy]);
       // Carousel media and decoded image dimensions can differ from the opening photo.
       const destination = image.getBoundingClientRect();
-      const bounds = trigger.isConnected ? trigger.getBoundingClientRect() : rect;
+      const currentBounds = trigger.isConnected ? trigger.getBoundingClientRect() : rect;
+      // The focus camera returns to zero along with the selected photo.
+      const bounds = { ...rect, left: currentBounds.left - (focusRef.current ? Number(gsap.getProperty(focusRef.current, 'x')) : 0), top: currentBounds.top, width: currentBounds.width, height: currentBounds.height };
       const restore = () => { onClose(); requestAnimationFrame(() => trigger.isConnected && trigger.focus({ preventScroll: true })); };
       if (reduced) { restore(); return; }
       gsap.to(copy, { opacity: 0, duration: 0.15 });
@@ -57,7 +73,7 @@ export function Detail({ selection, onClose, planeRef }: { selection: Selection;
     };
     root.addEventListener('keydown', keyboard);
     return () => { ctx.revert(); gsap.killTweensOf([root, image, copy]); root.removeEventListener('keydown', keyboard); };
-  }, [post, rect, trigger, onClose, restoreTiles]);
+  }, [post, rect, trigger, onClose, restoreTiles, focusRef]);
 
   const media = post.media[index];
   const initialPreview = index === 0 ? selection.preview : undefined;

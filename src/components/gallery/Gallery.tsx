@@ -1,5 +1,5 @@
 'use client';
-import { memo, useCallback, useMemo, useState, type RefObject } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, type RefObject } from 'react';
 import type { GalleryPost } from '@/types/gallery';
 import { layoutMetrics, ROW_PITCH, TILE_SIZE, type RepeatedTile } from '@/lib/gallery/geometry';
 import { useCamera } from './useCamera';
@@ -22,6 +22,7 @@ const GalleryTile = memo(function GalleryTile({ tile, post, dragged, onSelect }:
 export const Gallery = memo(function Gallery({ posts }: { posts: GalleryPost[] }) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [selectedTile, setSelectedTile] = useState<RepeatedTile | null>(null);
+  const focusRef = useRef<HTMLDivElement>(null);
   const { viewportRef, planeRef, tiles: visible, dragged } = useCamera(posts.length, !!selection);
   const close = useCallback(() => { setSelection(null); setSelectedTile(null); }, []);
   const select = useCallback((tile: RepeatedTile, next: Selection) => {
@@ -45,15 +46,15 @@ export const Gallery = memo(function Gallery({ posts }: { posts: GalleryPost[] }
     </div>
     <div ref={viewportRef} className="gallery-viewport" tabIndex={0} role="region" aria-label="음식 사진 갤러리" aria-describedby="keyboard-help" inert={!!selection}>
       <p id="keyboard-help" className="sr-only">마우스로 드래그하여 이동하고 휠로 확대·축소합니다. 더하기와 빼기로도 확대·축소하고 Home으로 처음 위치로 돌아갑니다. Tab으로 사진을 선택하고 Enter로 엽니다. 모바일에서는 드래그와 두 손가락 확대를 사용할 수 있습니다.</p>
-      <div className="gallery-plane" ref={planeRef}>
+      <div className="gallery-focus" ref={focusRef}><div className="gallery-plane" ref={planeRef}>
         {rows.map((rowTiles, row) => <div className="gallery-row" key={row} data-direction={row % 2 === 0 ? 1 : -1} style={{ top: row * ROW_PITCH, height: TILE_SIZE }}>
         {rowTiles.map(tile => {
           const post = selectedTile?.key === tile.key && selection ? selection.post : posts[tile.index];
           return <GalleryTile key={tile.key} tile={tile} post={post} dragged={dragged} onSelect={select} />;
         })}</div>)}
-      </div>
+      </div></div>
       {!posts.length && <p className="empty-gallery">아직 표시할 사진이 없습니다.</p>}
     </div>
-    {selection && <Detail selection={selection} onClose={close} planeRef={planeRef} />}
+    {selection && <Detail selection={selection} onClose={close} planeRef={planeRef} focusRef={focusRef} />}
   </main>;
 });
