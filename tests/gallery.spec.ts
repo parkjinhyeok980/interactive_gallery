@@ -49,8 +49,9 @@ test('five fixed rows preserve every post and coordinates at every zoom', () => 
     expect(world.tiles).toHaveLength(count);
     const seen = new Set<number>();
     let allFit = true, bounded = true;
-    for (let col = 0; col < world.columns; col += Math.max(1, Math.floor(size.width / (TILE_SIZE * scale)))) {
-      const tiles = visibleTiles(count, { ...camera, x: -col * TILE_SIZE * scale }, size);
+    for (let row = 0; row < world.rows; row++) for (let col = 0; col < world.columns; col += Math.max(1, Math.floor(size.width / (TILE_SIZE * scale)))) {
+      const position = clampCamera({ ...camera, x: -col * TILE_SIZE * scale, y: -row * ROW_PITCH * scale }, size, world);
+      const tiles = visibleTiles(count, position, size);
       bounded &&= tiles.length < 250;
       for (const tile of tiles) {
         allFit &&= tile.index >= 0 && tile.index < count;
@@ -60,6 +61,26 @@ test('five fixed rows preserve every post and coordinates at every zoom', () => 
     expect(allFit).toBe(true); expect(bounded).toBe(true); expect(seen.size).toBe(count);
   }
   expect(layoutMetrics(600, { width: 1440, height: 900 }, .5)).toMatchObject({ rows: 5, columns: 120 });
+});
+
+test('zoomed visibility excludes distant rows while retaining overscan and all visible tiles', () => {
+  const viewport = { width: 844, height: 390 };
+  const world = createLayout(600);
+  for (const y of [0, -800, -2400]) for (const drift of [0, 400, 10000]) {
+    const camera = clampCamera({ x: -300, y, scale: 1.8 }, viewport, world);
+    const tiles = visibleTiles(600, camera, viewport, drift);
+    expect(new Set(tiles.map(tile => tile.y)).size).toBeLessThan(5);
+    for (let row = 0; row < world.rows; row++) {
+      const top = row * ROW_PITCH * camera.scale + camera.y;
+      if (top < viewport.height && top + TILE_SIZE * camera.scale > 0) {
+        const rowTiles = tiles.filter(tile => tile.y === row * ROW_PITCH);
+        const offset = (row % 2 === 0 ? 1 : -1) * drift;
+        expect(rowTiles.length).toBeGreaterThan(0);
+        expect((rowTiles[0].x + offset) * camera.scale + camera.x).toBeLessThanOrEqual(0);
+        expect((rowTiles.at(-1)!.x + TILE_SIZE + offset) * camera.scale + camera.x).toBeGreaterThanOrEqual(viewport.width);
+      }
+    }
+  }
 });
 
 test('zoom stops at five-row fit and allows vertical dragging only within five rows', async ({ page }) => {

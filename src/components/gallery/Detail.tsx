@@ -5,6 +5,8 @@ import type { GalleryPost } from '@/types/gallery';
 import { Photo } from './Photo';
 import { useRadialReveal } from './useRadialReveal';
 
+const dateFormatter = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'long', timeZone: 'Asia/Seoul' });
+
 export type Selection = { post: GalleryPost; rect: { left: number; top: number; width: number; height: number }; trigger: HTMLButtonElement; preview?: { url: string; width: number; height: number } };
 export function Detail({ selection, onClose, planeRef }: { selection: Selection; onClose: () => void; planeRef: RefObject<HTMLDivElement | null> }) {
   const { post, rect, trigger } = selection;
@@ -68,7 +70,7 @@ export function Detail({ selection, onClose, planeRef }: { selection: Selection;
       <div className="detail-copy" ref={info}>
         <h2 id="detail-title" className="sr-only">사진 상세</h2>
         <p className="detail-caption">{post.caption}</p>
-        <div className="detail-meta"><time dateTime={post.timestamp}>{new Intl.DateTimeFormat('ko-KR', { dateStyle: 'long', timeZone: 'Asia/Seoul' }).format(new Date(post.timestamp))}</time>
+        <div className="detail-meta"><time dateTime={post.timestamp}>{dateFormatter.format(new Date(post.timestamp))}</time>
         {post.permalink && <a className="original-link" href={post.permalink} target="_blank" rel="noopener noreferrer">Instagram ↗</a>}</div>
         {post.media.length > 1 && <div className="carousel-controls"><button aria-label="이전 사진" onClick={() => setIndex(i => (i - 1 + post.media.length) % post.media.length)}>←</button><span aria-live="polite">{String(index + 1).padStart(2, '0')} / {String(post.media.length).padStart(2, '0')}</span><button aria-label="다음 사진" onClick={() => setIndex(i => (i + 1) % post.media.length)}>→</button></div>}
       </div>

@@ -6,6 +6,9 @@ import { Camera, Size, clampCamera, fitScale, zoomWithinBounds, visibleTiles, la
 export function useCamera(count: number, paused: boolean) {
   const postCount = useRef(count);
   postCount.current = count;
+  const world = useRef(layoutMetrics(count));
+  world.current = layoutMetrics(count);
+  const refresh = useRef(() => {});
   const initialCount = useRef(count);
   const viewportRef = useRef<HTMLDivElement>(null);
   const planeRef = useRef<HTMLDivElement>(null);
@@ -29,7 +32,7 @@ export function useCamera(count: number, paused: boolean) {
     preference(); media.addEventListener('change', preference);
     const pointers = new Map<number, { x: number; y: number }>();
     let velocity = { x: 0, y: 0 }, lastTime = 0, lastMove = 0, distance = 0, travel = 0;
-    const worldAt = (scale: number) => layoutMetrics(postCount.current, size.current, scale);
+    const worldAt = (_scale: number) => world.current;
     const fit = (value: Camera) => clampCamera(value, size.current, worldAt(value.scale));
     const center = () => {
       const scale = fitScale(size.current, worldAt(1));
@@ -44,7 +47,7 @@ export function useCamera(count: number, paused: boolean) {
       if (!initialized.current) { camera.current = { ...target.current }; initialized.current = true; }
     });
     resize.observe(el);
-    let tileSignature = '';
+    let publishedTiles: RepeatedTile[] = [];
     const publish = () => {
       const next = visibleTiles(postCount.current, camera.current, size.current, drift.current).map(tile => {
         // Appending pages changes the negative-column modulo first (left edge).
@@ -52,9 +55,11 @@ export function useCamera(count: number, paused: boolean) {
         const previous = mountedTiles.current.get(tile.key);
         return previous && previous.index < postCount.current ? previous : tile;
       });
-      mountedTiles.current = new Map(next.map(tile => [tile.key, tile]));
-      const signature = next.map(tile => `${tile.key}/${tile.index}`).join(',');
-      if (signature !== tileSignature) { tileSignature = signature; setTiles(next); }
+      if (next.length !== publishedTiles.length || next.some((tile, index) => tile !== publishedTiles[index])) {
+        mountedTiles.current = new Map(next.map(tile => [tile.key, tile]));
+        publishedTiles = next;
+        setTiles(next);
+      }
     };
     let publishedRows = 0;
     let publishedDrift = -Infinity;
@@ -143,6 +148,7 @@ export function useCamera(count: number, paused: boolean) {
       if (e.key === '-') { e.preventDefault(); zoom(1 / 1.15); }
       if (e.key === 'Home') { e.preventDefault(); reset(); }
     };
+    refresh.current = () => { publish(); wake(); };
     wake();
     // Idle flow stays on the compositor. Wake JS only to recycle offscreen
     // tiles, or while a user gesture/inertia is changing the camera.
@@ -153,12 +159,16 @@ export function useCamera(count: number, paused: boolean) {
     window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
     el.addEventListener('wheel', wheel, { passive: false }); el.addEventListener('keydown', key);
     return () => {
+      refresh.current = () => {};
       target.current = { ...camera.current };
       cancelAnimationFrame(frame); clearInterval(housekeeping); resize.disconnect(); media.removeEventListener('change', preference);
       el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
       el.removeEventListener('wheel', wheel); el.removeEventListener('keydown', key);
     };
-  }, [paused, count]);
+  }, [paused]);
+  // Appending a page updates visibility without resetting gesture state,
+  // inertia, event listeners, or the ResizeObserver.
+  useEffect(() => { refresh.current(); }, [count]);
   return { viewportRef, planeRef, camera, tiles, dragged, controls };
 }

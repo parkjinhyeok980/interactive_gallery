@@ -1,4 +1,27 @@
 import { expect, test } from '@playwright/test';
+import { mockPosts } from '../src/lib/data/mock';
+import { layoutMetrics } from '../src/lib/gallery/geometry';
+
+test('appending a page preserves an active drag', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  let deliver!: () => Promise<void>;
+  await page.route('**/api/instagram/posts?after=25', route => {
+    deliver = () => route.fulfill({ json: { posts: mockPosts.slice(25), nextCursor: null } });
+  });
+  await page.goto('/');
+  const plane = page.locator('.gallery-plane');
+  await expect(plane).toHaveCSS('width', `${layoutMetrics(25).width}px`);
+  await expect.poll(() => typeof deliver).toBe('function');
+  await page.mouse.move(400, 450); await page.mouse.down();
+  await page.mouse.move(600, 450, { steps: 5 });
+  await deliver();
+  await expect(plane).toHaveCSS('width', `${layoutMetrics(mockPosts.length).width}px`);
+  const x = () => plane.evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).m41);
+  const before = await x();
+  await page.mouse.move(800, 450, { steps: 5 });
+  await expect.poll(x).toBeGreaterThan(before + 150);
+  await page.mouse.up();
+});
 
 test('appending pages keeps left-hand mounted photos and image nodes unchanged', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });

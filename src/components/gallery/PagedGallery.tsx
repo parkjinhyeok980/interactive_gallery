@@ -29,7 +29,7 @@ export function PagedGallery({ initialPage }: { initialPage: GalleryPage }) {
             ids.add(post.id);
             return true;
           });
-          return [...current, ...added];
+          return added.length ? [...current, ...added] : current;
         });
       }
     };

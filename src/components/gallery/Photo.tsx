@@ -1,6 +1,6 @@
 'use client';
 import Image, { getImageProps } from 'next/image';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type { GalleryMedia } from '@/types/gallery';
 import { cachedPreview, loadPreview } from './previewQueue';
 export const Photo = memo(function Photo({ media, sizes, priority = false, enabled = true, initialPreview }: { media: GalleryMedia; sizes: string; priority?: boolean; enabled?: boolean; initialPreview?: { url: string; width: number; height: number } }) {
@@ -9,7 +9,7 @@ export const Photo = memo(function Photo({ media, sizes, priority = false, enabl
   const [fullLoaded, setFullLoaded] = useState(false);
   const original = media.type === 'VIDEO' ? media.thumbnailUrl : media.url;
   const source = media.cachedImageUrl || original;
-  const previewUrl = !priority && source ? getImageProps({ src: source, alt: '', width: 192, height: 192 }).props.src : '';
+  const previewUrl = useMemo(() => !priority && source ? getImageProps({ src: source, alt: '', width: 192, height: 192 }).props.src : '', [source, priority]);
   const [preview, setPreview] = useState<string | undefined>(() => cachedPreview(previewUrl));
   useEffect(() => {
     if (priority || !source || !enabled) return;

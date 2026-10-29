@@ -19,11 +19,15 @@ export function useRowFlow(planeRef: RefObject<HTMLDivElement | null>, viewportR
     const time = () => elapsed + (startedAt === null ? 0 : Number(document.timeline.currentTime) - startedAt);
     const animations = new Map<Element, Animation>();
     const pointers = new Set<number>();
+    let timer: ReturnType<typeof setInterval> | undefined;
     const sample = () => { drift.current = time() / 1000 * SPEED; };
     const sync = () => {
       const running = !paused && !preference.matches && !document.hidden && pointers.size === 0 && !document.activeElement?.matches('.photo-tile:focus-visible');
       if (running && startedAt === null) startedAt = Number(document.timeline.currentTime);
       else if (!running && startedAt !== null) { elapsed = time(); startedAt = null; }
+      // Paused/hidden/reduced-motion views have no changing drift to sample.
+      if (running && timer === undefined) timer = setInterval(sample, 200);
+      else if (!running && timer !== undefined) { clearInterval(timer); timer = undefined; }
       for (const [row, animation] of animations) {
         if (!row.isConnected) { animation.cancel(); animations.delete(row); }
       }
@@ -57,8 +61,6 @@ export function useRowFlow(planeRef: RefObject<HTMLDivElement | null>, viewportR
     document.addEventListener('visibilitychange', sync);
     preference.addEventListener('change', sync);
     sync();
-    // Only visibility bookkeeping runs on JS, at 5 Hz rather than 60 Hz.
-    const timer = setInterval(sample, 200);
     return () => {
       sample();
       clearInterval(timer); observer.disconnect();

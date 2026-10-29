@@ -40,6 +40,10 @@ export function visibleTiles(count: number, camera: Camera, viewport: Size, drif
   const { rows } = layoutMetrics(count, viewport, camera.scale), margin = TILE_SIZE;
   const tiles: RepeatedTile[] = [];
   for (let row = 0; row < rows; row++) {
+    const top = row * ROW_PITCH;
+    // Keep one tile of overscan, but do not mount distant rows when zoomed in.
+    if ((top + TILE_SIZE + margin) * camera.scale + camera.y < 0 ||
+        (top - margin) * camera.scale + camera.y > viewport.height) continue;
     const columns = Math.ceil((count - row) / rows);
     const offset = (row % 2 === 0 ? 1 : -1) * drift;
     const left = Math.floor((-camera.x / camera.scale - margin - offset) / TILE_SIZE);
