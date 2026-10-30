@@ -14,7 +14,7 @@ async function openPhoto(surface: Page | Frame) {
 }
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1440, height: 900 }]) {
-  test(`centered photo and bounded stacks at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  test(`centered photo and circular clearing at ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
@@ -23,15 +23,17 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }
       const r = node.getBoundingClientRect();
       return Math.abs(r.top + r.height / 2 - innerHeight / 2);
     })).toBeLessThan(1);
-    await expect.poll(() => page.locator('.photo-tile').evaluateAll(nodes => nodes.every(node => {
-      const transform = new DOMMatrixReadOnly(getComputedStyle(node).transform);
-      if (Math.abs(transform.m42) < 1) return true;
-      const r = node.getBoundingClientRect();
-      const detail = document.querySelector('.detail-layout')!.getBoundingClientRect();
-      const caption = document.querySelector('.detail-copy')!.getBoundingClientRect();
-      return r.height >= 10 && r.top >= 15 && r.bottom <= innerHeight - 15 &&
-        (r.right <= detail.left || r.left >= detail.right || r.bottom <= detail.top || r.top >= caption.bottom);
-    }))).toBe(true);
+    await expect.poll(() => page.locator('.photo-tile').evaluateAll(nodes => {
+      const photo = document.querySelector('.detail-image')!.getBoundingClientRect();
+      const cx = photo.left + photo.width / 2, cy = photo.top + photo.height / 2;
+      if (Math.abs(cx - innerWidth / 2) > 1) return false;
+      return nodes.every(node => {
+        if (Number(getComputedStyle(node).opacity) === 0) return true;
+        const r = node.getBoundingClientRect();
+        const distance = Math.hypot(Math.max(r.left - cx, cx - r.right, 0), Math.max(r.top - cy, cy - r.bottom, 0));
+        return distance >= Math.hypot(photo.width, photo.height) / 2 + 75;
+      });
+    })).toBe(true);
     await page.screenshot({ path: `qa-artifacts/detail-${viewport.width}.png` });
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);

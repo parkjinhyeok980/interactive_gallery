@@ -14,7 +14,12 @@ async function visibleTile(page: Page, carousel = false) {
     const box = await tiles.nth(i).boundingBox();
     const screen = page.viewportSize()!;
     // A narrow viewport can clip tile edges; the click/focus target must be visible.
-    if (box && box.x > 16 && box.x + box.width < screen.width - 16 && box.y > 80 && box.y + box.height < screen.height - 90) return tiles.nth(i);
+    if (box && box.x > 16 && box.x + box.width < screen.width - 16 && box.y > 80 && box.y + box.height < screen.height - 90) {
+      // Retaining a detail pan changes which offscreen cells are mounted.
+      // Follow this photo's identity instead of its index in the visible list.
+      const key = await tiles.nth(i).getAttribute('data-cell');
+      return page.locator(`.photo-tile[data-cell="${key}"]`);
+    }
   }
   throw new Error('No tile with a visible center');
 }

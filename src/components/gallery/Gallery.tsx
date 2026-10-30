@@ -23,7 +23,7 @@ export const Gallery = memo(function Gallery({ posts }: { posts: GalleryPost[] }
   const [selection, setSelection] = useState<Selection | null>(null);
   const [selectedTile, setSelectedTile] = useState<RepeatedTile | null>(null);
   const focusRef = useRef<HTMLDivElement>(null);
-  const { viewportRef, planeRef, tiles: visible, dragged } = useCamera(posts.length, !!selection);
+  const { viewportRef, planeRef, tiles: visible, dragged } = useCamera(posts.length, !!selection, focusRef);
   const close = useCallback(() => { setSelection(null); setSelectedTile(null); }, []);
   const select = useCallback((tile: RepeatedTile, next: Selection) => {
     setSelectedTile(tile); setSelection(next);
@@ -44,7 +44,7 @@ export const Gallery = memo(function Gallery({ posts }: { posts: GalleryPost[] }
         <a className="wordmark" href="/" aria-label="hyeoki_foodie 갤러리 처음으로">hyeoki_foodie</a>
       </header>
     </div>
-    <div ref={viewportRef} className="gallery-viewport" tabIndex={0} role="region" aria-label="음식 사진 갤러리" aria-describedby="keyboard-help" inert={!!selection}>
+    <div ref={viewportRef} className="gallery-viewport" tabIndex={0} role="region" aria-label="음식 사진 갤러리" aria-describedby="keyboard-help">
       <p id="keyboard-help" className="sr-only">마우스로 드래그하여 이동하고 휠로 확대·축소합니다. 더하기와 빼기로도 확대·축소하고 Home으로 처음 위치로 돌아갑니다. Tab으로 사진을 선택하고 Enter로 엽니다. 모바일에서는 드래그와 두 손가락 확대를 사용할 수 있습니다.</p>
       <div className="gallery-focus" ref={focusRef}><div className="gallery-plane" ref={planeRef}>
         {rows.map((rowTiles, row) => <div className="gallery-row" key={row} data-direction={row % 2 === 0 ? 1 : -1} style={{ top: row * ROW_PITCH, height: TILE_SIZE }}>
@@ -55,6 +55,6 @@ export const Gallery = memo(function Gallery({ posts }: { posts: GalleryPost[] }
       </div></div>
       {!posts.length && <p className="empty-gallery">아직 표시할 사진이 없습니다.</p>}
     </div>
-    {selection && <Detail selection={selection} onClose={close} planeRef={planeRef} focusRef={focusRef} />}
+    {selection && <Detail key={selectedTile?.key} selection={selection} onClose={close} planeRef={planeRef} focusRef={focusRef} />}
   </main>;
 });

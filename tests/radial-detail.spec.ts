@@ -50,62 +50,94 @@ test('cached photo visibly travels from its tile while the full-size request is 
   } finally { release(); }
 });
 
-test('camera pans horizontally, photos stack within the vertical boundaries, and closing restores the gallery', async ({ page }) => {
+// Measure the rendered tile displacement against the rendered photo center.
+// This catches a stale circle center even when the final photo is centered.
+async function measureReveal(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const image = document.querySelector('.detail-image')!.getBoundingClientRect();
+    const cx = image.left + image.width / 2, cy = image.top + image.height / 2;
+    const cameraScale = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.gallery-plane')!).transform).a;
+    let error = 0, moved = 0, clearance = Infinity;
+    for (const tile of document.querySelectorAll('.photo-tile')) {
+      if (Number(getComputedStyle(tile).opacity) === 0) continue;
+      const r = tile.getBoundingClientRect();
+      const m = new DOMMatrixReadOnly(getComputedStyle(tile).transform);
+      const dx = m.m41 * cameraScale, dy = m.m42 * cameraScale;
+      const displacement = Math.hypot(dx, dy);
+      if (displacement > 5) {
+        moved++;
+        error = Math.max(error, Math.abs((r.left + r.width / 2 - cx) * dy - (r.top + r.height / 2 - cy) * dx) / displacement);
+      }
+      clearance = Math.min(clearance, Math.hypot(Math.max(r.left - cx, cx - r.right, 0), Math.max(r.top - cy, cy - r.bottom, 0)));
+    }
+    return { error, moved, clearance, diagonal: Math.hypot(image.width, image.height), centerError: Math.hypot(cx - innerWidth / 2, cy - innerHeight / 2) };
+  });
+}
+
+async function clickSurroundingPhoto(page: import('@playwright/test').Page) {
+  const candidate = await page.locator('.photo-tile').evaluateAll(nodes => {
+    const current = document.querySelector<HTMLImageElement>('.detail-image img')?.alt;
+    for (const node of nodes) {
+      const r = node.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (x < 30 || x > innerWidth - 30 || y < 90 || y > innerHeight - 30 || Number(getComputedStyle(node).opacity) === 0) continue;
+      if (node.querySelector('img')?.alt === current || !node.querySelector('img')?.naturalWidth) continue;
+      if (document.elementFromPoint(x, y)?.closest('.photo-tile') === node) return { x, y, key: node.getAttribute('data-cell'), alt: node.querySelector('img')!.alt };
+    }
+  });
+  expect(candidate).toBeTruthy();
+  await page.mouse.click(candidate!.x, candidate!.y);
+  return candidate!;
+}
+
+test('the enlarged circular clearing follows the photo throughout its journey to the center', async ({ page }) => {
   await page.goto('/');
   await expect.poll(() => page.locator('.photo-tile img').count()).toBeGreaterThan(10);
-  const tile = page.locator('.photo-tile').filter({ has: page.locator('img') });
-  const index = await tile.evaluateAll(nodes => nodes.findIndex(node => {
-    const r = node.getBoundingClientRect();
-    return r.left > 300 && r.right < innerWidth - 200 && r.top > 180 && r.bottom < innerHeight - 120;
-  }));
-  expect(index).toBeGreaterThanOrEqual(0);
-  const selected = tile.nth(index);
-  const key = await selected.getAttribute('data-cell');
-  const cameraBefore = await page.locator('.gallery-plane').getAttribute('style');
-  const hit = (await selected.boundingBox())!;
-  await page.mouse.click(hit.x + hit.width / 2, hit.y + hit.height / 2);
+  await clickSurroundingPhoto(page);
   await expect(page.getByRole('dialog')).toBeVisible();
-  // Let the last automatic-flow culling update settle when the dialog pauses it.
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  const countBefore = await page.locator('.photo-tile').count();
-  await expect.poll(() => page.locator('.detail-image img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-  await page.waitForTimeout(1100);
-  const check = () => page.evaluate(key => {
-    const content = document.querySelector('.detail-layout')!.getBoundingClientRect();
-    const image = document.querySelector('.detail-image')!.getBoundingClientRect();
-    const copy = document.querySelector('.detail-copy')!.getBoundingClientRect();
-    const nodes = [...document.querySelectorAll<HTMLElement>('.photo-tile')].filter(tile => tile.dataset.cell !== key);
-    return {
-      clear: nodes.every(tile => {
-        const r = tile.getBoundingClientRect();
-        return r.right <= content.left || r.left >= content.right || r.bottom <= content.top || r.top >= content.bottom;
-      }),
-      bounded: nodes.every(tile => {
-        const m = new DOMMatrixReadOnly(getComputedStyle(tile).transform);
-        const r = tile.getBoundingClientRect();
-        return Math.abs(m.m42) < 1 || (r.top >= 15 && r.bottom <= innerHeight - 15);
-      }),
-      moved: nodes.filter(tile => { const m = new DOMMatrixReadOnly(getComputedStyle(tile).transform); return Math.abs(m.m41) + Math.abs(m.m42) > 10; }).length,
-      captionBelow: copy.top >= image.bottom,
-    };
-  }, key);
-  await expect.poll(async () => (await check()).clear).toBe(true);
-  expect((await check()).moved).toBeGreaterThan(5);
-  expect((await check()).captionBelow).toBe(true);
-  expect((await check()).bounded).toBe(true);
-  const cameraPan = await page.locator('.gallery-focus').evaluate(node => new DOMMatrixReadOnly(getComputedStyle(node).transform).m41);
-  expect(cameraPan).toBeCloseTo(720 - hit.x - hit.width / 2, 0);
-  const centered = (await page.locator(`[data-cell="${key}"]`).boundingBox())!;
-  expect(centered.x + centered.width / 2).toBeCloseTo(720, 0);
-  expect(await page.locator('.photo-tile').count()).toBe(countBefore);
+  let movingSamples = 0;
+  for (let i = 0; i < 12; i++) {
+    const state = await measureReveal(page);
+    if (state.moved > 3) {
+      expect(state.error).toBeLessThan(2);
+      if (state.centerError > 10) movingSamples++;
+    }
+    await page.waitForTimeout(70);
+  }
+  expect(movingSamples).toBeGreaterThan(0);
+  await expect.poll(async () => (await measureReveal(page)).centerError).toBeLessThan(1);
+  const state = await measureReveal(page);
+  expect(state.moved).toBeGreaterThan(5);
+  expect(state.clearance).toBeGreaterThan(state.diagonal / 2 + 75);
   await page.screenshot({ path: 'qa-artifacts/radial-desktop.png' });
-  await page.keyboard.press('Escape');
+  // A viewport resize must use the new layout center, not the animated bounds.
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await expect.poll(async () => (await measureReveal(page)).centerError).toBeLessThan(1);
+  await expect.poll(async () => (await measureReveal(page)).error).toBeLessThan(2);
+});
+
+test('surrounding photos switch directly and closing preserves the latest horizontal position', async ({ page }) => {
+  await page.goto('/');
+  await expect.poll(() => page.locator('.photo-tile img').count()).toBeGreaterThan(10);
+  let selected = await clickSurroundingPhoto(page);
+  for (let i = 0; i < 3; i++) {
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(page.locator('.detail-image img')).toHaveAttribute('alt', selected.alt);
+    await expect.poll(async () => (await measureReveal(page)).centerError).toBeLessThan(1);
+    await expect.poll(async () => (await measureReveal(page)).error).toBeLessThan(2);
+    if (i < 2) selected = await clickSurroundingPhoto(page);
+  }
+  const pan = () => page.locator('.gallery-focus').evaluate(node => new DOMMatrixReadOnly(getComputedStyle(node).transform).m41);
+  const beforeClose = await pan();
+  await page.getByRole('button', { name: '상세 보기 닫기' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.locator(`[data-cell="${key}"]`)).toBeFocused();
-  expect(await page.locator('.gallery-plane').getAttribute('style')).toBe(cameraBefore);
-  expect(await page.locator('.gallery-focus').evaluate(node => new DOMMatrixReadOnly(getComputedStyle(node).transform).m41)).toBe(0);
+  expect(await pan()).toBeCloseTo(beforeClose, 1);
+  await expect(page.locator(`[data-cell="${selected.key}"]`)).toBeFocused();
   expect(await page.locator('.photo-tile').evaluateAll(nodes => nodes.every(node => {
     const m = new DOMMatrixReadOnly(getComputedStyle(node).transform);
     return Math.abs(m.m41) < .01 && Math.abs(m.m42) < .01 && Math.abs(m.a - 1) < .01 && getComputedStyle(node).opacity === '1';
   }))).toBe(true);
+  // Retained camera offsets also participate in tile culling after closing.
+  await expect.poll(() => page.evaluate(() => [30, innerWidth - 30].every(x =>
+    !!document.elementFromPoint(x, innerHeight / 2)?.closest('.photo-tile')
+  ))).toBe(true);
 });

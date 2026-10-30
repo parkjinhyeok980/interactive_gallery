@@ -21,7 +21,7 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
   useLayoutEffect(() => {
     const root = dialog.current!, image = photo.current!, copy = info.current!;
     const fit = () => {
-      // Reserve space for the caption and a visible bottom stack, even in
+      // Reserve space for the caption and the circular clearing, even in
       // short embedded previews. The photo itself stays vertically centered.
       const height = root.clientHeight;
       const available = height - 2 * (copy.offsetHeight + 14 + 20 + 16 + 24);
@@ -32,16 +32,13 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
     resize.observe(root); resize.observe(copy);
     return () => resize.disconnect();
   }, []);
-  const restoreTiles = useRadialReveal(planeRef, content, trigger, focusRef);
+  const restoreTiles = useRadialReveal(planeRef, content, selection, focusRef);
   useLayoutEffect(() => {
     const root = dialog.current!, image = photo.current!, copy = info.current!;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     closeButton.current?.focus();
-    const destination = image.getBoundingClientRect();
-    const offset = { x: rect.left - destination.left, y: rect.top - destination.top, scaleX: rect.width / destination.width, scaleY: rect.height / destination.height };
     const ctx = gsap.context(() => {
       gsap.from(root, { backgroundColor: 'rgba(8,9,8,0)', duration: reduced ? 0 : 0.45 });
-      gsap.fromTo(image, { ...offset, transformOrigin: 'top left' }, { x: 0, y: 0, scaleX: 1, scaleY: 1, duration: reduced ? 0 : .95, ease: 'power2.inOut' });
       gsap.from(copy, { opacity: 0, y: reduced ? 0 : 16, duration: reduced ? 0 : .3, delay: reduced ? 0 : .9 });
     }, root);
     closeAction.current = () => {
@@ -50,15 +47,15 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
       restoreTiles.current();
       gsap.killTweensOf([root, image, copy]);
       // Carousel media and decoded image dimensions can differ from the opening photo.
-      const destination = image.getBoundingClientRect();
+      const destination = content.current!.getBoundingClientRect();
       const currentBounds = trigger.isConnected ? trigger.getBoundingClientRect() : rect;
-      // The focus camera returns to zero along with the selected photo.
-      const bounds = { ...rect, left: currentBounds.left - (focusRef.current ? Number(gsap.getProperty(focusRef.current, 'x')) : 0), top: currentBounds.top, width: currentBounds.width, height: currentBounds.height };
+      // Return to the tile under the retained camera, even if closed mid-flight.
+      const bounds = { ...rect, left: currentBounds.left, top: currentBounds.top, width: currentBounds.width, height: currentBounds.height };
       const restore = () => { onClose(); requestAnimationFrame(() => trigger.isConnected && trigger.focus({ preventScroll: true })); };
       if (reduced) { restore(); return; }
       gsap.to(copy, { opacity: 0, duration: 0.15 });
       gsap.to(root, { backgroundColor: 'rgba(8,9,8,0)', duration: 0.4 });
-      gsap.to(image, { x: bounds.left - destination.left, y: bounds.top - destination.top, scaleX: bounds.width / destination.width, scaleY: bounds.height / destination.height, duration: 0.5, ease: 'power3.inOut', onComplete: restore });
+      gsap.to(image, { x: bounds.left + bounds.width / 2 - destination.left - destination.width / 2, y: bounds.top + bounds.height / 2 - destination.top - destination.height / 2, scaleX: bounds.width / image.offsetWidth, scaleY: bounds.height / image.offsetHeight, duration: 0.5, ease: 'power3.inOut', onComplete: restore });
     };
     const keyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); closeAction.current(); }
@@ -77,7 +74,7 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
 
   const media = post.media[index];
   const initialPreview = index === 0 ? selection.preview : undefined;
-  return <div className="detail-backdrop" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="detail-title" onClick={e => { if (e.target === e.currentTarget) closeAction.current(); }}>
+  return <div className="detail-backdrop" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="detail-title" >
     <button className="detail-close" ref={closeButton} onClick={() => closeAction.current()} aria-label="상세 보기 닫기">닫기 <span>×</span></button>
     <div className="detail-layout" ref={content}>
       <div className={`detail-image${initialPreview ? ' has-preview' : ''}`} ref={photo} style={initialPreview ? { width: `min(100%, calc(var(--detail-photo-height, 46svh) * ${initialPreview.width / initialPreview.height}))`, aspectRatio: `${initialPreview.width} / ${initialPreview.height}` } : undefined}>

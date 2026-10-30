@@ -1,9 +1,10 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { gsap } from 'gsap';
 import { useRowFlow } from './useRowFlow';
 import { Camera, Size, clampCamera, fitScale, zoomWithinBounds, visibleTiles, layoutMetrics, type RepeatedTile } from '@/lib/gallery/geometry';
 
-export function useCamera(count: number, paused: boolean) {
+export function useCamera(count: number, paused: boolean, focusRef: RefObject<HTMLDivElement | null>) {
   const postCount = useRef(count);
   postCount.current = count;
   const world = useRef(layoutMetrics(count));
@@ -48,11 +49,12 @@ export function useCamera(count: number, paused: boolean) {
     });
     resize.observe(el);
     let publishedTiles: RepeatedTile[] = [];
+    const focusPan = () => focusRef.current ? Number(gsap.getProperty(focusRef.current, 'x')) : 0;
     const publish = () => {
       // A detail camera pan can expose up to half a viewport on either side.
       // Cover the complete journey without changing the exploration camera.
       const view = paused ? { ...size.current, width: size.current.width * 2 } : size.current;
-      const position = paused ? { ...camera.current, x: camera.current.x + size.current.width / 2 } : camera.current;
+      const position = { ...camera.current, x: camera.current.x + focusPan() + (paused ? size.current.width / 2 : 0) };
       const next = visibleTiles(postCount.current, position, view, drift.current).map(tile => {
         // Appending pages changes the negative-column modulo first (left edge).
         // Keep mounted cells attached to their photo until they leave the buffer.
@@ -67,6 +69,7 @@ export function useCamera(count: number, paused: boolean) {
     };
     let publishedRows = 0;
     let publishedDrift = -Infinity;
+    let publishedPan = Infinity;
     let published = { x: Infinity, y: Infinity, scale: 0, width: 0, height: 0 };
     const tick = (now: number) => {
       frame = 0;
@@ -91,13 +94,13 @@ export function useCamera(count: number, paused: boolean) {
       const transform = `translate3d(${c.x}px,${c.y}px,0) scale(${c.scale})`;
       if (plane.style.transform !== transform) plane.style.transform = transform;
       const finalChange = settled && (c.x !== published.x || c.y !== published.y || c.scale !== published.scale);
-      if (metrics.rows !== publishedRows || Math.abs(drift.current - publishedDrift) > 35 || finalChange || Math.abs(c.x - published.x) > 35 || Math.abs(c.y - published.y) > 35 || Math.abs(c.scale - published.scale) > 0.012 || size.current.width !== published.width || size.current.height !== published.height) {
-        publish(); publishedRows = metrics.rows; published = { ...c, ...size.current }; publishedDrift = drift.current;
+      if (metrics.rows !== publishedRows || Math.abs(focusPan() - publishedPan) > 35 || Math.abs(drift.current - publishedDrift) > 35 || finalChange || Math.abs(c.x - published.x) > 35 || Math.abs(c.y - published.y) > 35 || Math.abs(c.scale - published.scale) > 0.012 || size.current.width !== published.width || size.current.height !== published.height) {
+        publish(); publishedRows = metrics.rows; published = { ...c, ...size.current }; publishedDrift = drift.current; publishedPan = focusPan();
       }
       if (!settled && !paused) wake();
     };
     // The viewport is fixed to the window; pointer moves require no layout read.
-    const local = (e: PointerEvent | WheelEvent) => ({ x: e.clientX, y: e.clientY });
+    const local = (e: PointerEvent | WheelEvent) => ({ x: e.clientX - focusPan(), y: e.clientY });
     const down = (e: PointerEvent) => {
       if (paused || (e.pointerType === 'mouse' && e.button !== 0)) return;
       if (pointers.size === 0) { dragged.current = false; travel = 0; }
@@ -132,8 +135,8 @@ export function useCamera(count: number, paused: boolean) {
       if (!pointers.size) { el.classList.remove('is-dragging'); if (performance.now() - lastMove > 100 || e.type === 'pointercancel') velocity = { x: 0, y: 0 }; }
       distance = pointers.size === 2 ? Math.hypot(...getDelta()) : 0;
     };
-    const zoom = (factor: number) => { wake(); velocity = { x: 0, y: 0 }; target.current = zoomWithinBounds(target.current, target.current.scale * factor, size.current.width / 2, size.current.height / 2, size.current, worldAt(target.current.scale)); };
-    const reset = () => { wake(); velocity = { x: 0, y: 0 }; target.current = center(); };
+    const zoom = (factor: number) => { wake(); velocity = { x: 0, y: 0 }; target.current = zoomWithinBounds(target.current, target.current.scale * factor, size.current.width / 2 - focusPan(), size.current.height / 2, size.current, worldAt(target.current.scale)); };
+    const reset = () => { wake(); velocity = { x: 0, y: 0 }; if (focusRef.current) gsap.set(focusRef.current, { x: 0 }); target.current = center(); };
     controls.current = { zoom, reset };
     const wheel = (e: WheelEvent) => {
       e.preventDefault(); if (paused) return;
@@ -157,7 +160,7 @@ export function useCamera(count: number, paused: boolean) {
     // Idle flow stays on the compositor. Wake JS only to recycle offscreen
     // tiles, or while a user gesture/inertia is changing the camera.
     const housekeeping = setInterval(() => {
-      if (Math.abs(drift.current - publishedDrift) > 35) wake();
+      if (Math.abs(drift.current - publishedDrift) > 35 || Math.abs(focusPan() - publishedPan) > 35) wake();
     }, 500);
     el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
@@ -170,7 +173,7 @@ export function useCamera(count: number, paused: boolean) {
       window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
       el.removeEventListener('wheel', wheel); el.removeEventListener('keydown', key);
     };
-  }, [paused]);
+  }, [paused, focusRef]);
   // Appending a page updates visibility without resetting gesture state,
   // inertia, event listeners, or the ResizeObserver.
   useEffect(() => { refresh.current(); }, [count]);

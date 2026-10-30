@@ -1,96 +1,112 @@
-'use client';
+﻿'use client';
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { gsap } from 'gsap';
-import { EDGE_PADDING, ROW_PITCH } from '@/lib/gallery/geometry';
+import type { Selection } from './Detail';
 
-// Only the already mounted tiles move. Their row/camera transforms stay intact.
-export function useRadialReveal(planeRef: RefObject<HTMLDivElement | null>, contentRef: RefObject<HTMLDivElement | null>, trigger: HTMLButtonElement, focusRef: RefObject<HTMLDivElement | null>) {
+// One progress value moves the photo, its circular clearing, and the camera.
+// Measurements always use layout dimensions, never the animated photo bounds.
+export function useRadialReveal(planeRef: RefObject<HTMLDivElement | null>, contentRef: RefObject<HTMLDivElement | null>, selection: Selection, focusRef: RefObject<HTMLDivElement | null>) {
   const restore = useRef<() => void>(() => {});
   useLayoutEffect(() => {
     const plane = planeRef.current, content = contentRef.current, focus = focusRef.current;
-    if (!plane || !content || !focus) return;
+    const image = content?.querySelector<HTMLElement>('.detail-image');
+    if (!plane || !content || !focus || !image) return;
+    const { trigger, rect } = selection;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const progress = { value: 0 };
+    const start = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    const panStart = Number(gsap.getProperty(focus, 'x'));
     let frame = 0, closing = false;
-    let focusDestination = NaN;
+    let centerX = 0, centerY = 0, width = 1, height = 1, radius = 0, panEnd = panStart, cameraScale = 1;
+    let tiles: { node: HTMLElement; x: number; y: number; halfDiagonal: number }[] = [];
     const moved = new Set<HTMLElement>();
-    const ctx = gsap.context(() => {}, plane);
-    const arrange = () => {
+
+    const render = () => {
+      const p = progress.value;
+      const pan = panStart + (panEnd - panStart) * p;
+      const x = start.x + (centerX - start.x) * p;
+      const y = start.y + (centerY - start.y) * p;
+      const clearing = radius * p;
+      gsap.set(focus, { x: pan });
+      gsap.set(image, {
+        x: x - centerX, y: y - centerY,
+        scaleX: rect.width / width + (1 - rect.width / width) * p,
+        scaleY: rect.height / height + (1 - rect.height / height) * p,
+        transformOrigin: 'center center',
+      });
+      for (const tile of tiles) {
+        const dx = tile.x + pan - x, dy = tile.y - y;
+        const distance = Math.hypot(dx, dy);
+        const angle = distance > .01 ? Math.atan2(dy, dx) : -Math.PI / 2;
+        // Small tiles near the center form the curved rim seen in the reference.
+        const influence = Math.max(0, 1 - distance / (radius + tile.halfDiagonal));
+        const scale = 1 - .62 * influence * p;
+        const displacement = Math.max(0, clearing + tile.halfDiagonal * scale - distance);
+        if (!displacement && scale === 1 && !moved.has(tile.node)) continue;
+        moved.add(tile.node);
+        gsap.set(tile.node, {
+          x: Math.cos(angle) * displacement / cameraScale,
+          y: Math.sin(angle) * displacement / cameraScale,
+          scale, transformOrigin: 'center center',
+        });
+      }
+    };
+    const measure = () => {
       frame = 0;
       if (closing) return;
-      const contentBounds = content.getBoundingClientRect();
-      const caption = content.querySelector('.detail-copy')?.getBoundingClientRect();
-      const bounds = { left: contentBounds.left, right: contentBounds.right, top: contentBounds.top,
-        bottom: Math.max(contentBounds.bottom, caption?.bottom ?? contentBounds.bottom),
-        height: Math.max(contentBounds.bottom, caption?.bottom ?? contentBounds.bottom) - contentBounds.top };
+      // The layout wrapper has no animation transform. Resize/image decoding
+      // therefore cannot move the clearing to an in-flight photo position.
+      const layout = content.getBoundingClientRect();
       const viewport = focus.parentElement!.getBoundingClientRect();
+      centerX = layout.left + layout.width / 2;
+      centerY = layout.top + layout.height / 2;
+      width = image.offsetWidth || 1;
+      height = image.offsetHeight || 1;
+      radius = Math.max(Math.hypot(width, height) / 2 + 90, Math.min(viewport.width, viewport.height) * .42);
       const pan = Number(gsap.getProperty(focus, 'x'));
+      cameraScale = new DOMMatrixReadOnly(getComputedStyle(plane).transform).a || 1;
       const selected = trigger.getBoundingClientRect();
-      const panTarget = viewport.left + viewport.width / 2 - (selected.left + selected.width / 2 - pan);
-      const cameraScale = new DOMMatrixReadOnly(getComputedStyle(plane).transform).a || 1;
-      const planeBounds = plane.getBoundingClientRect();
-      const top = Math.max(viewport.top + EDGE_PADDING, planeBounds.top);
-      const bottom = Math.min(viewport.bottom - EDGE_PADDING, planeBounds.bottom);
-      const rowCount = plane.children.length;
-      // Read all geometry before writing transforms to avoid per-tile layout work.
-      const targets = [...plane.querySelectorAll<HTMLElement>('.photo-tile')].filter(tile => tile !== trigger).map(tile => {
-        const rect = tile.getBoundingClientRect();
-        const width = tile.offsetWidth * cameraScale, height = tile.offsetHeight * cameraScale;
-        const cx = rect.left + rect.width / 2 - pan + panTarget;
-        const cy = rect.top + rect.height / 2 - Number(gsap.getProperty(tile, 'y')) * cameraScale;
-        const affected = cx + width / 2 > bounds.left - 20 && cx - width / 2 < bounds.right + 20;
-        if (!affected) return { tile, x: 0, y: 0, scale: 1 };
-        const upper = cy < bounds.top + bounds.height / 2;
-        const start = upper ? top : Math.min(bottom, bounds.bottom + 20);
-        const end = upper ? Math.max(top, bounds.top - 20) : bottom;
-        const available = Math.max(0, end - start);
-        const scale = Math.min(.72, available / height);
-        const row = Math.round((tile.parentElement as HTMLElement).offsetTop / ROW_PITCH);
-        // Preserve row order in a bounded stack; adjacent layers remain visible.
-        const fraction = row / Math.max(1, rowCount - 1);
-        const targetY = start + height * scale / 2 + (available - height * scale) * fraction;
-        return { tile, x: 0, y: (targetY - cy) / cameraScale, scale };
+      panEnd = centerX - (selected.left + selected.width / 2 - pan);
+      tiles = [...plane.querySelectorAll<HTMLElement>('.photo-tile')].filter(node => node !== trigger).map(node => {
+        const bounds = node.getBoundingClientRect();
+        return {
+          node,
+          x: bounds.left + bounds.width / 2 - Number(gsap.getProperty(node, 'x')) * cameraScale - pan,
+          y: bounds.top + bounds.height / 2 - Number(gsap.getProperty(node, 'y')) * cameraScale,
+          halfDiagonal: Math.hypot(node.offsetWidth, node.offsetHeight) * cameraScale / 2,
+        };
       });
-      ctx.add(() => {
-        gsap.set(trigger, { opacity: 0 });
-        if (Math.abs(panTarget - focusDestination) > .1 || !Number.isFinite(focusDestination)) {
-          focusDestination = panTarget;
-          gsap.to(focus, { x: panTarget, duration: reduced ? 0 : .95, ease: 'power2.inOut', overwrite: 'auto' });
-        }
-        for (const { tile, ...position } of targets) {
-          // Unaffected tiles need no tween or GSAP style bookkeeping.
-          if (!position.x && !position.y && position.scale === 1 && !moved.has(tile)) continue;
-          moved.add(tile);
-          gsap.to(tile, { ...position, transformOrigin: 'center center', duration: reduced ? 0 : .7, ease: 'power3.inOut', overwrite: true });
-        }
-      });
+      gsap.set(trigger, { opacity: 0, pointerEvents: 'none' });
+      render();
     };
-    const schedule = () => { if (!frame && !closing) frame = requestAnimationFrame(arrange); };
-    arrange();
+    const schedule = () => { if (!frame && !closing) frame = requestAnimationFrame(measure); };
+    measure();
+    gsap.to(progress, { value: 1, duration: reduced ? 0 : .95, ease: 'power2.inOut', onUpdate: render });
     const resize = new ResizeObserver(schedule);
     resize.observe(content);
-    const caption = content.querySelector('.detail-copy');
-    if (caption) resize.observe(caption);
+    resize.observe(image);
     window.addEventListener('resize', schedule);
     const additions = new MutationObserver(records => {
-      if (records.some(record => [...record.addedNodes].some(node => node instanceof HTMLElement && (node.matches('.photo-tile, .gallery-row'))))) schedule();
+      if (records.some(record => [...record.addedNodes].some(node => node instanceof HTMLElement && node.matches('.photo-tile, .gallery-row')))) schedule();
     });
     additions.observe(plane, { childList: true, subtree: true });
     restore.current = () => {
-      closing = true; cancelAnimationFrame(frame);
-      gsap.to(focus, { x: 0, duration: reduced ? 0 : .5, ease: 'power3.inOut', overwrite: true });
-      ctx.add(() => gsap.to([...moved], { x: 0, y: 0, scale: 1, duration: reduced ? 0 : .5, ease: 'power3.inOut', overwrite: true }));
+      closing = true;
+      cancelAnimationFrame(frame);
+      gsap.killTweensOf(progress);
+      gsap.to([...moved], { x: 0, y: 0, scale: 1, duration: reduced ? 0 : .5, ease: 'power3.inOut', overwrite: true });
     };
     return () => {
-      closing = true; cancelAnimationFrame(frame); resize.disconnect(); additions.disconnect();
+      closing = true;
+      cancelAnimationFrame(frame);
+      resize.disconnect(); additions.disconnect();
       window.removeEventListener('resize', schedule);
-      gsap.killTweensOf([...moved, trigger, focus]);
-      ctx.revert();
-      // Resize/media-load retargeting can leave intermediate tween snapshots.
-      // These properties belong solely to this reveal; reset GSAP's cache too.
-      gsap.set([...moved, trigger], { clearProps: 'transform,transformOrigin,opacity' });
-      gsap.set(focus, { clearProps: 'transform' });
+      gsap.killTweensOf(progress);
+      gsap.killTweensOf([...moved, trigger]);
+      gsap.set([...moved, trigger], { clearProps: 'transform,transformOrigin,opacity,pointerEvents' });
+      // The horizontal camera position deliberately survives closing/switching.
       restore.current = () => {};
     };
-  }, [planeRef, contentRef, trigger, focusRef]);
+  }, [planeRef, contentRef, selection, focusRef]);
   return restore;
 }
