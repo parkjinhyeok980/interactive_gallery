@@ -128,7 +128,7 @@ test('surrounding photos switch directly and closing preserves the latest horizo
   }
   const pan = () => page.locator('.gallery-focus').evaluate(node => new DOMMatrixReadOnly(getComputedStyle(node).transform).m41);
   const beforeClose = await pan();
-  await page.getByRole('button', { name: '상세 보기 닫기' }).click();
+  await page.getByRole('button', { name: '사진 닫기' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(await pan()).toBeCloseTo(beforeClose, 1);
   await expect(page.locator(`[data-cell="${selected.key}"]`)).toBeFocused();

@@ -2,44 +2,38 @@ import { expect, test } from '@playwright/test';
 import { mockPosts } from '../src/lib/data/mock';
 import { layoutMetrics } from '../src/lib/gallery/geometry';
 
-test('appending a page preserves an active drag', async ({ page }) => {
+test('loads the entire 125-post collection before establishing a fixed repeat period', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  const extra = Array.from({ length: 100 }, (_, i) => ({ ...mockPosts[i % mockPosts.length], id: `complete-${i}` }));
   let deliver!: () => Promise<void>;
-  await page.route('**/api/instagram/posts?after=25', route => {
-    deliver = () => route.fulfill({ json: { posts: mockPosts.slice(25), nextCursor: null } });
+  await page.route('**/api/instagram/posts?after=*', route => {
+    const cursor = new URL(route.request().url()).searchParams.get('after');
+    if (cursor === '25') return route.fulfill({ json: { posts: extra.slice(0, 50), nextCursor: '75' } });
+    deliver = () => route.fulfill({ json: { posts: extra.slice(50), nextCursor: null } });
   });
   await page.goto('/');
-  const plane = page.locator('.gallery-plane');
-  await expect(plane).toHaveCSS('width', `${layoutMetrics(25).width}px`);
   await expect.poll(() => typeof deliver).toBe('function');
-  await page.mouse.move(400, 450); await page.mouse.down();
-  await page.mouse.move(600, 450, { steps: 5 });
+  await expect(page.locator('.burger-loader')).toBeVisible();
+  await expect(page.locator('.gallery-plane')).toHaveCount(0);
   await deliver();
-  await expect(plane).toHaveCSS('width', `${layoutMetrics(mockPosts.length).width}px`);
-  const x = () => plane.evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).m41);
-  const before = await x();
-  await page.mouse.move(800, 450, { steps: 5 });
-  await expect.poll(x).toBeGreaterThan(before + 150);
-  await page.mouse.up();
-});
-
-test('appending pages keeps left-hand mounted photos and image nodes unchanged', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  let fail = true;
-  await page.route('**/api/instagram/posts?after=25', route => fail ? route.fulfill({ status: 503, body: '{}' }) : route.continue());
-  await page.goto('/');
-  await expect(page.getByRole('status')).toBeVisible();
-  await expect.poll(() => page.locator('.photo-tile').evaluateAll(tiles => tiles.every(tile => !!tile.querySelector('img')))).toBe(true);
-  const count = await page.evaluate(() => {
-    const tiles = [...document.querySelectorAll<HTMLElement>('.photo-tile')].filter(tile => Number(tile.dataset.cell!.split(':')[0]) < 0);
-    (window as any).leftPhotos = tiles.map(tile => ({ tile, img: tile.querySelector('img'), label: tile.getAttribute('aria-label') }));
-    return tiles.length;
-  });
-  expect(count).toBeGreaterThan(0);
-  fail = false;
-  await page.getByRole('button', { name: '다시 시도' }).click();
-  await expect(page.getByRole('status')).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).leftPhotos.every(({ tile, img, label }: any) => tile.isConnected && tile.querySelector('img') === img && tile.getAttribute('aria-label') === label))).toBe(true);
+  await expect(page.locator('.burger-loader')).toHaveCount(0);
+  const plane = page.locator('.gallery-plane');
+  await expect(plane).toHaveCSS('width', `${layoutMetrics(125).width}px`);
+  const seen = new Set<number>();
+  for (let i = 0; i < 10; i++) {
+    const tiles = await page.locator('.photo-tile').evaluateAll(nodes => nodes.map(node => ({
+      cell: node.getAttribute('data-cell')!, index: parseInt(node.getAttribute('aria-label')!) - 1,
+    })));
+    for (const tile of tiles) {
+      const [column, row] = tile.cell.split(':').map(Number);
+      expect(tile.index).toBe(row + ((column % 25 + 25) % 25) * 5);
+      seen.add(tile.index);
+    }
+    const before = await plane.getAttribute('style');
+    await page.mouse.wheel(650, 0);
+    await expect.poll(() => plane.getAttribute('style')).not.toBe(before);
+  }
+  expect(seen.size).toBe(125);
 });
 
 test('recycled cached thumbnails mount without an empty placeholder', async ({ page }) => {

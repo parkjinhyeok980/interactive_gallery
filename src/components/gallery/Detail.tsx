@@ -14,7 +14,7 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
   const dialog = useRef<HTMLDivElement>(null);
   const photo = useRef<HTMLDivElement>(null);
   const info = useRef<HTMLDivElement>(null);
-  const closeButton = useRef<HTMLButtonElement>(null);
+  const photoButton = useRef<HTMLButtonElement>(null);
   const closing = useRef(false);
   const closeAction = useRef<() => void>(() => {});
   const content = useRef<HTMLDivElement>(null);
@@ -36,7 +36,7 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
   useLayoutEffect(() => {
     const root = dialog.current!, image = photo.current!, copy = info.current!;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    closeButton.current?.focus();
+    (photoButton.current || root).focus({ preventScroll: true });
     const ctx = gsap.context(() => {
       gsap.from(root, { backgroundColor: 'rgba(8,9,8,0)', duration: reduced ? 0 : 0.45 });
       gsap.from(copy, { opacity: 0, y: reduced ? 0 : 16, duration: reduced ? 0 : .3, delay: reduced ? 0 : .9 });
@@ -74,11 +74,10 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
 
   const media = post.media[index];
   const initialPreview = index === 0 ? selection.preview : undefined;
-  return <div className="detail-backdrop" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="detail-title" >
-    <button className="detail-close" ref={closeButton} onClick={() => closeAction.current()} aria-label="상세 보기 닫기">닫기 <span>×</span></button>
+  return <div className="detail-backdrop" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="detail-title" tabIndex={-1}>
     <div className="detail-layout" ref={content}>
       <div className={`detail-image${initialPreview ? ' has-preview' : ''}`} ref={photo} style={initialPreview ? { width: `min(100%, calc(var(--detail-photo-height, 46svh) * ${initialPreview.width / initialPreview.height}))`, aspectRatio: `${initialPreview.width} / ${initialPreview.height}` } : undefined}>
-        {media.type === 'VIDEO' ? <video key={media.id} src={media.url} poster={initialPreview?.url || media.thumbnailUrl} controls playsInline aria-label={media.alt} /> : <Photo key={media.id} media={media} initialPreview={initialPreview} sizes="(max-width: 700px) 82vw, 480px" priority />}
+        {media.type === 'VIDEO' ? <video key={media.id} src={media.url} poster={initialPreview?.url || media.thumbnailUrl} controls playsInline aria-label={media.alt} /> : <button className="detail-photo-toggle" ref={photoButton} onClick={() => closeAction.current()} aria-label="사진 닫기"><Photo key={media.id} media={media} initialPreview={initialPreview} sizes="(max-width: 700px) 82vw, 480px" priority /></button>}
       </div>
       <div className="detail-copy" ref={info}>
         <h2 id="detail-title" className="sr-only">사진 상세</h2>

@@ -184,7 +184,7 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   await expect(page.locator('.carousel-controls')).toContainText('02 / 03');
   await page.keyboard.press('ArrowLeft');
   await expect(page.locator('.carousel-controls')).toContainText('01 / 03');
-  await page.getByRole('button', { name: '상세 보기 닫기' }).focus();
+  await page.getByRole('button', { name: '사진 닫기' }).focus();
   await page.keyboard.press('Shift+Tab');
   await expect(page.getByRole('button', { name: '다음 사진' })).toBeFocused();
   await expect.poll(() => page.locator('.detail-image img').evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);

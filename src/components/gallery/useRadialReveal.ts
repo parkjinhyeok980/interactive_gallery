@@ -63,6 +63,8 @@ export function useRadialReveal(planeRef: RefObject<HTMLDivElement | null>, cont
       width = image.offsetWidth || 1;
       height = image.offsetHeight || 1;
       radius = Math.max(Math.hypot(width, height) / 2 + 90, Math.min(viewport.width, viewport.height) * .42);
+      const copy = content.querySelector<HTMLElement>('.detail-copy');
+      if (copy) radius = Math.max(radius, Math.hypot(copy.offsetWidth / 2, height / 2 + 14 + copy.offsetHeight) + 24);
       const pan = Number(gsap.getProperty(focus, 'x'));
       cameraScale = new DOMMatrixReadOnly(getComputedStyle(plane).transform).a || 1;
       const selected = trigger.getBoundingClientRect();
@@ -85,6 +87,8 @@ export function useRadialReveal(planeRef: RefObject<HTMLDivElement | null>, cont
     const resize = new ResizeObserver(schedule);
     resize.observe(content);
     resize.observe(image);
+    const copy = content.querySelector('.detail-copy');
+    if (copy) resize.observe(copy);
     window.addEventListener('resize', schedule);
     const additions = new MutationObserver(records => {
       if (records.some(record => [...record.addedNodes].some(node => node instanceof HTMLElement && node.matches('.photo-tile, .gallery-row')))) schedule();

@@ -1,1 +1,2 @@
-export default function Loading() { return <main className="loading-screen">사진 공간을 준비하고 있습니다…</main>; }
+import { GalleryLoading } from '@/components/gallery/GalleryLoading';
+export default function Loading() { return <GalleryLoading />; }

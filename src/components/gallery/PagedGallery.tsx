@@ -2,9 +2,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GalleryPage } from '@/types/gallery';
 import { Gallery } from './Gallery';
+import { GalleryLoading } from './GalleryLoading';
 
 export function PagedGallery({ initialPage }: { initialPage: GalleryPage }) {
   const [posts, setPosts] = useState(initialPage.posts);
+  const [ready, setReady] = useState(!initialPage.nextCursor);
+  const accumulated = useRef(initialPage.posts);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const cursor = useRef(initialPage.nextCursor);
@@ -22,22 +25,28 @@ export function PagedGallery({ initialPage }: { initialPage: GalleryPage }) {
         if (!Array.isArray(page.posts) || (page.nextCursor !== null && typeof page.nextCursor !== 'string') || page.nextCursor === after) throw new Error('invalid page');
         seen.current.add(after);
         cursor.current = page.nextCursor;
-        setPosts(current => {
+        {
+          const current = accumulated.current;
           const ids = new Set(current.map(post => post.id));
           const added = page.posts.filter(post => {
             if (ids.has(post.id)) return false;
             ids.add(post.id);
             return true;
           });
-          return added.length ? [...current, ...added] : current;
-        });
+          accumulated.current = added.length ? [...current, ...added] : current;
+        }
+      }
+      if (!controller.signal.aborted) {
+        // Establish the repeat period once, from the complete collection.
+        setPosts(accumulated.current);
+        setReady(true);
       }
     };
     load().catch(() => { if (!controller.signal.aborted) setFailed(true); });
     return () => controller.abort();
   }, [attempt]);
   return <>
-    <Gallery posts={posts} />
-    {failed && <div className="gallery-load-error" role="status">이전 사진을 더 불러오지 못했습니다. <button onClick={() => { setFailed(false); setAttempt(value => value + 1); }}>다시 시도</button></div>}
+    {ready ? <Gallery posts={posts} /> : <GalleryLoading />}
+    {failed && <div className="gallery-load-error" role="alert">사진을 불러오지 못했습니다. <button onClick={() => { setFailed(false); setAttempt(value => value + 1); }}>다시 시도</button></div>}
   </>;
 }
