@@ -24,8 +24,8 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
       // Reserve space for the caption and the circular clearing, even in
       // short embedded previews. The photo itself stays vertically centered.
       const height = root.clientHeight;
-      const available = height - 2 * (copy.offsetHeight + 14 + 20 + 16 + 24);
-      image.style.setProperty('--detail-photo-height', `${Math.max(40, Math.min(height * .46, available))}px`);
+      const available = height - 2 * (copy.offsetHeight + 14 + 24);
+      image.style.setProperty('--detail-photo-height', `${Math.max(40, Math.min(height * .58, available))}px`);
     };
     fit();
     const resize = new ResizeObserver(fit);
@@ -76,8 +76,8 @@ export function Detail({ selection, onClose, planeRef, focusRef }: { selection: 
   const initialPreview = index === 0 ? selection.preview : undefined;
   return <div className="detail-backdrop" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="detail-title" tabIndex={-1}>
     <div className="detail-layout" ref={content}>
-      <div className={`detail-image${initialPreview ? ' has-preview' : ''}`} ref={photo} style={initialPreview ? { width: `min(100%, calc(var(--detail-photo-height, 46svh) * ${initialPreview.width / initialPreview.height}))`, aspectRatio: `${initialPreview.width} / ${initialPreview.height}` } : undefined}>
-        {media.type === 'VIDEO' ? <video key={media.id} src={media.url} poster={initialPreview?.url || media.thumbnailUrl} controls playsInline aria-label={media.alt} /> : <button className="detail-photo-toggle" ref={photoButton} onClick={() => closeAction.current()} aria-label="사진 닫기"><Photo key={media.id} media={media} initialPreview={initialPreview} sizes="(max-width: 700px) 82vw, 480px" priority /></button>}
+      <div className={`detail-image${initialPreview ? ' has-preview' : ''}`} ref={photo} style={initialPreview ? { width: `min(100%, calc(var(--detail-photo-height, 58svh) * ${initialPreview.width / initialPreview.height}))`, aspectRatio: `${initialPreview.width} / ${initialPreview.height}` } : undefined}>
+        {media.type === 'VIDEO' ? <video key={media.id} src={media.url} poster={initialPreview?.url || media.thumbnailUrl} controls playsInline aria-label={media.alt} /> : <button className="detail-photo-toggle" ref={photoButton} onClick={() => closeAction.current()} aria-label="사진 닫기"><Photo key={media.id} media={media} initialPreview={initialPreview} sizes="(max-width: 700px) 90vw, 640px" priority /></button>}
       </div>
       <div className="detail-copy" ref={info}>
         <h2 id="detail-title" className="sr-only">사진 상세</h2>
