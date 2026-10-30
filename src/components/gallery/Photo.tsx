@@ -25,7 +25,7 @@ export const Photo = memo(function Photo({ media, sizes, priority = false, enabl
   if (failed || !source) return <span className="image-fallback">{media.type === 'VIDEO' ? '영상 보기' : '이미지를 불러올 수 없습니다'}</span>;
   // Full resolution is requested only for the selected photo.
   if (priority) return <Image src={direct ? original || source : source} alt={media.alt} width={initialPreview?.width || media.width} height={initialPreview?.height || media.height}
-    style={initialPreview && !fullLoaded ? { backgroundImage: `url(${JSON.stringify(initialPreview.url)})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' } : undefined}
+    style={initialPreview && !fullLoaded ? { backgroundImage: `url(${JSON.stringify(initialPreview.url)})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' } : undefined}
     unoptimized={direct} sizes={sizes} draggable={false} priority onLoad={() => setFullLoaded(true)} onError={() => { if (!direct) setDirect(true); else setFailed(true); }} />;
   return <span className="photo-placeholder">{preview && <img src={preview} alt={media.alt} loading="lazy" decoding="async" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}</span>;
 });

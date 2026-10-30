@@ -193,7 +193,8 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
     const img = node as HTMLImageElement, rect = img.getBoundingClientRect(), parent = img.parentElement!.getBoundingClientRect();
     return { actual: rect.width / rect.height, natural: img.naturalWidth / img.naturalHeight, height: rect.height, frame: parent.height };
   });
-  expect(dimensions.actual).toBeCloseTo(dimensions.natural, 2);
+  expect(dimensions.actual).toBeCloseTo(1, 2);
+  await expect(page.locator('.detail-image img')).toHaveCSS('object-fit', 'cover');
   expect(dimensions.height).toBeCloseTo(dimensions.frame, 1);
   await page.screenshot({ path: 'qa-artifacts/detail.png' });
   await page.keyboard.press('Escape');
@@ -203,14 +204,19 @@ test('desktop exploration, details, carousel and restored camera', async ({ page
   expect(errors).toEqual([]);
 });
 
-test('portrait details use intrinsic dimensions without a black frame on desktop and mobile', async ({ page }) => {
+test('portrait, landscape and square photos use identical frames on desktop and mobile', async ({ page }) => {
+  test.setTimeout(60_000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  let source = { width: 400, height: 800 };
   await page.route('**/_next/image?**', async route => {
     if (Number(new URL(route.request().url()).searchParams.get('w')) >= 384) {
-      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="800"><rect width="400" height="800" fill="tan"/></svg>' });
+      await route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="${source.width}" height="${source.height}"><rect width="100%" height="100%" fill="tan"/></svg>` });
     } else await route.continue();
   });
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    let expectedSide: number | undefined;
+    for (const dimensions of [{ width: 400, height: 800 }, { width: 800, height: 400 }, { width: 400, height: 400 }]) {
+    source = dimensions;
     await page.setViewportSize(viewport); await page.goto('/');
     await expect(page.locator('.gallery-row')).toHaveCount(5);
     await (await visibleTile(page)).click();
@@ -218,15 +224,19 @@ test('portrait details use intrinsic dimensions without a black frame on desktop
     await expect.poll(() => img.evaluate(node => {
       const image = node as HTMLImageElement;
       return image.naturalWidth / image.naturalHeight;
-    })).toBeCloseTo(.5, 2);
+    })).toBeCloseTo(source.width / source.height, 2);
     const box = await img.boundingBox();
-    expect(box!.width / box!.height).toBeCloseTo(.5, 2);
+    expect(box!.width / box!.height).toBeCloseTo(1, 2);
+    await expect(img).toHaveCSS('object-fit', 'cover');
+    expectedSide ??= box!.width;
+    expect(box!.width).toBeCloseTo(expectedSide, 1);
     expect(box!.height).toBeLessThan(viewport.height);
     await expect(page.locator('.detail-image')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     const frame = await page.locator('.detail-image').boundingBox();
     expect(frame!.width).toBeCloseTo(box!.width, 1);
     expect(frame!.height).toBeCloseTo(box!.height, 1);
     await page.keyboard.press('Escape');
+    }
   }
 });
 

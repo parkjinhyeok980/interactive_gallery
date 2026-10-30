@@ -60,3 +60,11 @@ body{font-family:var(--gallery-font);font-weight:300}
 @media(max-width:700px){.detail-caption{font-size:16px;line-height:1.65}.detail-meta{font-size:12px}}
 @media(max-height:500px){.detail-caption{font-size:14px;line-height:1.5;max-height:18vh}}
 @media(prefers-reduced-motion:reduce){.burger-loader-fill path{animation:none;stroke-dashoffset:0}}
+
+/* A fixed square keeps every selected photo the same size. */
+.detail-image{width:min(100%,var(--detail-photo-height));height:var(--detail-photo-height);aspect-ratio:1;overflow:hidden}
+.detail-photo-toggle{width:100%;height:100%}
+.detail-image img,.detail-image video{width:100%;height:100%;max-height:none;object-fit:cover;object-position:center}
+.detail-copy{display:flex;flex-direction:column;max-height:var(--detail-copy-height)}
+.detail-caption{flex:0 1 auto;min-height:0}
+.detail-meta,.carousel-controls{flex-shrink:0}
